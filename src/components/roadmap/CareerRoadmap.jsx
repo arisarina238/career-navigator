@@ -1,0 +1,273 @@
+import React, { useState } from 'react';
+import { CAREER_ROADMAP_STAGES } from '../../mock/data';
+import { MentorControlsModal } from './MentorControlsModal';
+import { 
+  IconRoadmap, 
+  IconCheck, 
+  IconUser, 
+  IconSparkles 
+} from '../common/Icons';
+
+export const CareerRoadmap = ({ activeRole }) => {
+  const [activeScenario, setActiveScenario] = useState('B'); // A, B, C
+  const [showMentorModal, setShowMentorModal] = useState(false);
+
+  return (
+    <div style={styles.container} className="animate-fade-in">
+      <MentorControlsModal isOpen={showMentorModal} onClose={() => setShowMentorModal(false)} />
+
+      {/* Top Scenario Switcher Banner */}
+      <div className="card" style={{ marginBottom: '24px' }}>
+        <div style={styles.bannerInner}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <IconRoadmap size={24} color="#0066ff" />
+              <h2 style={{ margin: 0, fontSize: '1.3rem', color: '#0a2540' }}>
+                Персональный Образовательный Маршрут ИИ
+              </h2>
+            </div>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+              Интерактивная дорожная карта («Школа → Профпробы АИТУ → ВУЗ/СПО → Работа»)
+            </p>
+          </div>
+
+          {activeRole.id === 'mentor' && (
+            <button className="btn btn-navy" onClick={() => setShowMentorModal(true)}>
+              <IconUser size={16} /> Корректировка Наставника
+            </button>
+          )}
+        </div>
+
+        {/* Scenarios Indicator */}
+        <div style={styles.scenariosRow}>
+          <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#334155', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <IconSparkles size={16} color="#0066ff" />
+            <span>Уровень самоопределения (Сценарий ИИ):</span>
+          </div>
+
+          <div style={styles.scenarioBtns}>
+            <button
+              onClick={() => setActiveScenario('A')}
+              style={{
+                ...styles.scenBtn,
+                ...(activeScenario === 'A' ? styles.scenActive : {})
+              }}
+            >
+              Сценарий А («Не знаю кем»)
+            </button>
+
+            <button
+              onClick={() => setActiveScenario('B')}
+              style={{
+                ...styles.scenBtn,
+                ...(activeScenario === 'B' ? styles.scenActive : {})
+              }}
+            >
+              Сценарий Б («Знаю направление IT/Eng»)
+            </button>
+
+            <button
+              onClick={() => setActiveScenario('C')}
+              style={{
+                ...styles.scenBtn,
+                ...(activeScenario === 'C' ? styles.scenActive : {})
+              }}
+            >
+              Сценарий В («Знаю профессию»)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Linear Track Roadmap Timeline */}
+      <div className="card" style={{ padding: '32px 24px' }}>
+        <div style={styles.trackTitleRow}>
+          <span className="badge badge-success">Прогресс: 2 из 4 этапов пройдены</span>
+          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Авто-обновление из Цифрового профиля</span>
+        </div>
+
+        <div style={styles.timelineWrapper}>
+          {CAREER_ROADMAP_STAGES.map((stage, idx) => {
+            const isDone = stage.status === 'completed';
+            const isInProgress = stage.status === 'in_progress';
+            return (
+              <div key={stage.id} style={styles.timelineItem}>
+                {/* Connector Line */}
+                {idx < CAREER_ROADMAP_STAGES.length - 1 && (
+                  <div
+                    style={{
+                      ...styles.connectorLine,
+                      backgroundColor: isDone ? '#10b981' : '#e2e8f0'
+                    }}
+                  />
+                )}
+
+                {/* Status Dot */}
+                <div
+                  style={{
+                    ...styles.dotCircle,
+                    ...(isDone ? styles.dotDone : isInProgress ? styles.dotCurrent : styles.dotUpcoming)
+                  }}
+                >
+                  {isDone ? (
+                    <IconCheck size={20} color="#ffffff" />
+                  ) : (
+                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: isInProgress ? '#0066ff' : '#94a3b8' }}>
+                      {idx + 1}
+                    </span>
+                  )}
+                </div>
+
+                {/* Stage Card */}
+                <div
+                  style={{
+                    ...styles.stageCard,
+                    ...(isInProgress ? styles.stageCardCurrent : {})
+                  }}
+                >
+                  <div style={styles.stageHeader}>
+                    <h4 style={styles.stageTitle}>{stage.title}</h4>
+                    <span
+                      className={`badge ${
+                        isDone ? 'badge-success' : isInProgress ? 'badge-primary' : 'badge-navy'
+                      }`}
+                    >
+                      {stage.badge}
+                    </span>
+                  </div>
+
+                  <div style={styles.stageSubtitle}>{stage.subtitle}</div>
+                  <p style={styles.stageDesc}>{stage.description}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const styles = {
+  container: {},
+  bannerInner: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: '16px',
+    marginBottom: '16px'
+  },
+  scenariosRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: '12px',
+    paddingTop: '14px',
+    borderTop: '1px solid #e2e8f0'
+  },
+  scenarioBtns: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap'
+  },
+  scenBtn: {
+    padding: '6px 12px',
+    borderRadius: '16px',
+    backgroundColor: '#f1f5f9',
+    border: '1px solid #cbd5e1',
+    fontSize: '0.78rem',
+    fontWeight: 500,
+    color: '#475569',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
+  },
+  scenActive: {
+    backgroundColor: '#0066ff',
+    color: '#ffffff',
+    borderColor: '#0066ff',
+    fontWeight: 600
+  },
+  trackTitleRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '28px'
+  },
+  timelineWrapper: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '24px',
+    position: 'relative'
+  },
+  timelineItem: {
+    display: 'flex',
+    gap: '20px',
+    position: 'relative'
+  },
+  connectorLine: {
+    position: 'absolute',
+    left: '19px',
+    top: '40px',
+    bottom: '-24px',
+    width: '3px',
+    zIndex: 1
+  },
+  dotCircle: {
+    width: '40px',
+    height: '40px',
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    zIndex: 2
+  },
+  dotDone: {
+    backgroundColor: '#10b981'
+  },
+  dotCurrent: {
+    backgroundColor: '#e0f2fe',
+    border: '3px solid #0066ff'
+  },
+  dotUpcoming: {
+    backgroundColor: '#f1f5f9',
+    border: '2px solid #cbd5e1'
+  },
+  stageCard: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+    borderRadius: '12px',
+    border: '1px solid #e2e8f0',
+    padding: '18px 20px'
+  },
+  stageCardCurrent: {
+    backgroundColor: '#ffffff',
+    borderColor: '#0066ff',
+    boxShadow: '0 4px 14px rgba(0, 102, 255, 0.12)'
+  },
+  stageHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '4px'
+  },
+  stageTitle: {
+    fontSize: '1.05rem',
+    color: '#0a2540',
+    margin: 0
+  },
+  stageSubtitle: {
+    fontSize: '0.82rem',
+    fontWeight: 600,
+    color: '#0066ff',
+    marginBottom: '8px'
+  },
+  stageDesc: {
+    fontSize: '0.85rem',
+    color: '#475569',
+    lineHeight: 1.4,
+    margin: 0
+  }
+};

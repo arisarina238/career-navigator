@@ -1,0 +1,17 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Production build
+dist
+build
+
+# IDE & OS files
+.DS_Store
+*.local
+.vscode
+.idea
+
+# Temporary & extracted files
+_extracted
+scratch
