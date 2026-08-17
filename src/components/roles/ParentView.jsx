@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { api } from '../../services/api';
 import { 
   IconUser, 
   IconBrain, 
@@ -11,6 +12,33 @@ import {
 
 export const ParentView = ({ activeTab }) => {
   const [approvedTrial, setApprovedTrial] = useState(false);
+  const [approvals, setApprovals] = useState([]);
+
+  useEffect(() => {
+    api.getParentApprovals()
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setApprovals(data);
+          const hasPending = data.some((a) => a.status === 'PENDING');
+          setApprovedTrial(!hasPending);
+        }
+      })
+      .catch((err) => console.warn('Using local approvals fallback', err));
+  }, []);
+
+  const handleApprove = async () => {
+    if (approvals.length > 0) {
+      const pending = approvals.find((a) => a.status === 'PENDING');
+      if (pending) {
+        try {
+          await api.respondParentApproval(pending.id, 'APPROVED');
+        } catch (err) {
+          console.warn('Could not submit approval to API:', err.message);
+        }
+      }
+    }
+    setApprovedTrial(true);
+  };
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -137,7 +165,7 @@ export const ParentView = ({ activeTab }) => {
                 </div>
               </div>
 
-              <button className="btn btn-gold" onClick={() => setApprovedTrial(true)} style={{ padding: '12px 20px', fontSize: '0.9rem' }}>
+              <button className="btn btn-gold" onClick={handleApprove} style={{ padding: '12px 20px', fontSize: '0.9rem' }}>
                 <IconCheck size={16} /> Подтвердить согласие
               </button>
             </div>

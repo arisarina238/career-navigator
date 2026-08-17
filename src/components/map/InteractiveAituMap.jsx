@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AITU_ZONES } from '../../mock/data';
+import { api } from '../../services/api';
 import { BookingModal } from './BookingModal';
 import { 
   IconMapPin, 
@@ -24,13 +25,24 @@ const ICON_MAP = {
 };
 
 export const InteractiveAituMap = () => {
+  const [zones, setZones] = useState(AITU_ZONES);
   const [selectedZoneId, setSelectedZoneId] = useState('it');
   const [selectedTrial, setSelectedTrial] = useState(null);
   const [filterFormat, setFilterFormat] = useState('all');
 
-  const selectedZone = AITU_ZONES.find((z) => z.id === selectedZoneId) || AITU_ZONES[0];
+  useEffect(() => {
+    api.getAituZones()
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setZones(data);
+        }
+      })
+      .catch((err) => console.warn('Using local zones fallback', err));
+  }, []);
 
-  const filteredTrials = selectedZone.trials.filter((t) => {
+  const selectedZone = zones.find((z) => z.id === selectedZoneId) || zones[0];
+
+  const filteredTrials = (selectedZone.trials || []).filter((t) => {
     if (filterFormat === 'all') return true;
     return t.format.toLowerCase().includes(filterFormat.toLowerCase());
   });

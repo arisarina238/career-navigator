@@ -1,13 +1,25 @@
 import React, { useState } from 'react';
+import { api } from '../../services/api';
 import { IconClose, IconCheck, IconBriefcase, IconSparkles } from '../common/Icons';
 
 export const InternshipModal = ({ vacancy, companyName, isOpen, onClose }) => {
   const [applied, setApplied] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   if (!isOpen || !vacancy) return null;
 
-  const handleConfirm = () => {
-    setApplied(true);
+  const handleConfirm = async () => {
+    setLoading(true);
+    try {
+      if (vacancy.id) {
+        await api.applyToVacancy(vacancy.id);
+      }
+    } catch (err) {
+      console.warn('Application warning:', err.message);
+    } finally {
+      setLoading(false);
+      setApplied(true);
+    }
   };
 
   return (

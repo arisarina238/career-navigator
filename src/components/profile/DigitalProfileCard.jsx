@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { MOCK_STUDENT_PROFILE } from '../../mock/data';
+import { api } from '../../services/api';
 import { 
   IconCheck, 
   IconAward, 
@@ -9,7 +10,17 @@ import {
 } from '../common/Icons';
 
 export const DigitalProfileCard = ({ currentRole }) => {
-  const profile = MOCK_STUDENT_PROFILE;
+  const [profile, setProfile] = useState(MOCK_STUDENT_PROFILE);
+
+  useEffect(() => {
+    api.getStudentProfile()
+      .then((data) => {
+        if (data && data.snils) {
+          setProfile(data);
+        }
+      })
+      .catch((err) => console.warn('Using local student profile fallback', err));
+  }, []);
 
   return (
     <div style={styles.cardWrapper} className="animate-fade-in">

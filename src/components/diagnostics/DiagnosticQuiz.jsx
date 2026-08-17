@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { DIAGNOSTIC_QUESTIONS, MOCK_DIAGNOSTIC_RESULTS } from '../../mock/data';
+import { api } from '../../services/api';
 import { 
   IconBrain, 
   IconCheck, 
@@ -11,26 +12,48 @@ import {
 } from '../common/Icons';
 
 export const DiagnosticQuiz = ({ onNavigateTab }) => {
+  const [questions, setQuestions] = useState(DIAGNOSTIC_QUESTIONS);
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedOption, setSelectedOption] = useState(null);
   const [isCompleted, setIsCompleted] = useState(false);
   const [answers, setAnswers] = useState([]);
+  const [resultsData, setResultsData] = useState(MOCK_DIAGNOSTIC_RESULTS);
 
-  const currentQ = DIAGNOSTIC_QUESTIONS[currentStep];
+  useEffect(() => {
+    api.getDiagnosticQuestions()
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setQuestions(data);
+        }
+      })
+      .catch((err) => console.warn('Using local diagnostic questions fallback', err));
+  }, []);
+
+  const currentQ = questions[currentStep] || questions[0];
 
   const handleSelectOption = (idx) => {
     setSelectedOption(idx);
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (selectedOption === null) return;
-    const newAnswers = [...answers, selectedOption];
+    const selectedOptObj = currentQ.options[selectedOption];
+    const newAnswers = [...answers, { questionId: currentQ.id, selectedOptionIndex: selectedOption, scores: selectedOptObj?.scores }];
     setAnswers(newAnswers);
 
-    if (currentStep + 1 < DIAGNOSTIC_QUESTIONS.length) {
+    if (currentStep + 1 < questions.length) {
       setCurrentStep(currentStep + 1);
       setSelectedOption(null);
     } else {
+      // Завершение тестирования и отправка в БД через Prisma
+      try {
+        const res = await api.submitDiagnosticQuiz(newAnswers);
+        if (res && res.topDirections) {
+          setResultsData(res);
+        }
+      } catch (err) {
+        console.warn('Using mock diagnostic results fallback', err);
+      }
       setIsCompleted(true);
     }
   };
@@ -43,7 +66,7 @@ export const DiagnosticQuiz = ({ onNavigateTab }) => {
   };
 
   if (isCompleted) {
-    return <DiagnosticResults results={MOCK_DIAGNOSTIC_RESULTS} onNavigateTab={onNavigateTab} onRestart={handleRestart} />;
+    return <DiagnosticResults results={resultsData} onNavigateTab={onNavigateTab} onRestart={handleRestart} />;
   }
 
   return (

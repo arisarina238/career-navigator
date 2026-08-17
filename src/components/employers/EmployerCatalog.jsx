@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { EMPLOYERS_LIST } from '../../mock/data';
+import { api } from '../../services/api';
 import { InternshipModal } from './InternshipModal';
 import { 
   IconBriefcase, 
@@ -9,8 +10,19 @@ import {
 } from '../common/Icons';
 
 export const EmployerCatalog = ({ activeRole }) => {
+  const [employers, setEmployers] = useState(EMPLOYERS_LIST);
   const [selectedVacancy, setSelectedVacancy] = useState(null);
   const [selectedCompany, setSelectedCompany] = useState(null);
+
+  useEffect(() => {
+    api.getEmployers()
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setEmployers(data);
+        }
+      })
+      .catch((err) => console.warn('Using local employers fallback', err));
+  }, []);
 
   const handleApply = (vacancy, companyName) => {
     setSelectedVacancy(vacancy);
@@ -52,7 +64,7 @@ export const EmployerCatalog = ({ activeRole }) => {
 
       {/* Employers List */}
       <div style={styles.employersGrid}>
-        {EMPLOYERS_LIST.map((emp) => (
+        {employers.map((emp) => (
           <div key={emp.id} className="card card-hoverable" style={styles.empCard}>
             <div style={styles.empHeader}>
               <img src={emp.logo} alt={emp.name} style={styles.logoImg} />

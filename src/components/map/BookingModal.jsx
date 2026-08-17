@@ -1,13 +1,25 @@
 import React, { useState } from 'react';
+import { api } from '../../services/api';
 import { IconClose, IconCalendar, IconMapPin, IconUser, IconCheck, IconCompass } from '../common/Icons';
 
 export const BookingModal = ({ trial, isOpen, onClose }) => {
   const [booked, setBooked] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   if (!isOpen || !trial) return null;
 
-  const handleConfirm = () => {
-    setBooked(true);
+  const handleConfirm = async () => {
+    setLoading(true);
+    try {
+      if (trial.id) {
+        await api.bookProTrial(trial.id);
+      }
+    } catch (err) {
+      console.warn('Booking warning:', err.message);
+    } finally {
+      setLoading(false);
+      setBooked(true);
+    }
   };
 
   return (

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { api } from '../../services/api';
 import { 
   IconUser, 
   IconBrain, 
@@ -21,7 +22,7 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
   const [mentorNote, setMentorNote] = useState('');
   const [bulkBookingSuccess, setBulkBookingSuccess] = useState(false);
 
-  // Mock Students Data
+  // Initial Mock Students Data
   const [students, setStudents] = useState([
     {
       id: 1,
@@ -85,6 +86,16 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
     }
   ]);
 
+  useEffect(() => {
+    api.getMentorStudents()
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setStudents(data);
+        }
+      })
+      .catch((err) => console.warn('Using local students fallback', err));
+  }, []);
+
   const filteredStudents = students.filter((s) => {
     const matchesSearch = s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.aiRecommendation.toLowerCase().includes(searchQuery.toLowerCase());
     if (statusFilter === 'all') return matchesSearch;
@@ -93,10 +104,19 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
     return matchesSearch;
   });
 
-  const handleSaveMentorOverride = () => {
+  const handleSaveMentorOverride = async () => {
     if (!selectedStudentForEdit) return;
+    const targetStudentId = selectedStudentForEdit.id;
+    const noteText = mentorNote || selectedStudentForEdit.mentorComment;
+
+    try {
+      await api.addMentorNote(targetStudentId, noteText);
+    } catch (err) {
+      console.warn('Could not save note to API:', err.message);
+    }
+
     setStudents((prev) =>
-      prev.map((s) => (s.id === selectedStudentForEdit.id ? { ...s, mentorComment: mentorNote || s.mentorComment, status: 'verified' } : s))
+      prev.map((s) => (s.id === targetStudentId ? { ...s, mentorComment: noteText, status: 'verified' } : s))
     );
     setSelectedStudentForEdit(null);
     setMentorNote('');

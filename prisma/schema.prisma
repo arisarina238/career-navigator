@@ -1,0 +1,439 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ----------------------------------------------------
+// ENUMS (Перечисления)
+// ----------------------------------------------------
+
+enum Role {
+  STUDENT
+  MENTOR
+  PARENT
+  EMPLOYER
+  ADMIN
+}
+
+enum ScenarioType {
+  A
+  B
+  C
+}
+
+enum BookingStatus {
+  REGISTERED
+  CONFIRMED
+  ATTENDED
+  CANCELLED
+}
+
+enum StageStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  UPCOMING
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum VacancyType {
+  INTERNSHIP
+  PRACTICE
+  FOR_GRADUATES
+  JUNIOR
+}
+
+enum ApplicationStatus {
+  SUBMITTED
+  REVIEWING
+  INVITED
+  ACCEPTED
+  REJECTED
+}
+
+// ----------------------------------------------------
+// ПОЛЬЗОВАТЕЛИ И АУТЕНТИФИКАЦИЯ
+// ----------------------------------------------------
+
+model User {
+  id                String       @id @default(uuid())
+  email             String       @unique
+  passwordHash      String?
+  fullName          String
+  role              Role         @default(STUDENT)
+  avatarUrl         String?
+  phone             String?
+  gosuslugiVerified Boolean      @default(false)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  studentProfile    StudentProfile?
+  mentorProfile     MentorProfile?
+  parentProfile     ParentProfile?
+  employerProfile   EmployerProfile?
+
+  sentChatMessages  ChatMessage[]
+  trialReviews      TrialReview[]
+
+  @@map("users")
+}
+
+model StudentProfile {
+  id                 String       @id @default(uuid())
+  userId             String       @unique
+  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  snils              String?      @unique
+  school             String?
+  grade              String?
+  currentScenario    ScenarioType @default(A)
+  progressPercent    Int          @default(0)
+
+  mentorId           String?
+  mentor             MentorProfile? @relation("MentorStudents", fields: [mentorId], references: [id], onDelete: SetNull)
+
+  parentId           String?
+  parent             ParentProfile? @relation("ParentChildren", fields: [parentId], references: [id], onDelete: SetNull)
+
+  diagnosticResults  DiagnosticResult[]
+  trialBookings      TrialBooking[]
+  roadmapStages      RoadmapStage[]
+  jobApplications    JobApplication[]
+  chatSessions       ChatSession[]
+  parentApprovals    ParentApproval[]
+  mentorReviews      MentorReview[]
+
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@map("student_profiles")
+}
+
+model MentorProfile {
+  id             String           @id @default(uuid())
+  userId         String           @unique
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   String
+  position       String?
+
+  students       StudentProfile[] @relation("MentorStudents")
+  reviews        MentorReview[]
+
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@map("mentor_profiles")
+}
+
+model ParentProfile {
+  id             String           @id @default(uuid())
+  userId         String           @unique
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  children       StudentProfile[] @relation("ParentChildren")
+  approvals      ParentApproval[]
+
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@map("parent_profiles")
+}
+
+model EmployerProfile {
+  id             String           @id @default(uuid())
+  userId         String           @unique
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyName    String
+  industry       String
+  address        String
+  description    String?          @db.Text
+  logoUrl        String?
+  verified       Boolean          @default(false)
+  website        String?
+
+  vacancies      Vacancy[]
+  trials         ProTrial[]
+
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@map("employer_profiles")
+}
+
+// ----------------------------------------------------
+// ДИАГНОСТИКА И ТЕСТИРОВАНИЕ (RIASEC / КЛИМОВ)
+// ----------------------------------------------------
+
+model DiagnosticQuestion {
+  id             Int              @id @default(autoincrement())
+  category       String
+  questionText   String           @db.Text
+  order          Int              @default(0)
+  isActive       Boolean          @default(true)
+
+  options        DiagnosticOption[]
+
+  @@map("diagnostic_questions")
+}
+
+model DiagnosticOption {
+  id             Int                @id @default(autoincrement())
+  questionId     Int
+  question       DiagnosticQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  optionText     String
+  scores         Json
+
+  @@map("diagnostic_options")
+}
+
+model DiagnosticResult {
+  id                 String         @id @default(uuid())
+  studentId          String
+  student            StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  topDirections      Json
+  scoresDistribution Json
+  strengths          String[]
+  rawAnswers         Json?
+
+  completedAt        DateTime       @default(now())
+
+  @@map("diagnostic_results")
+}
+
+// ----------------------------------------------------
+// ЗОНЫ АИТУ И ПРОФПРОБЫ
+// ----------------------------------------------------
+
+model AituZone {
+  id             String     @id
+  name           String
+  icon           String
+  color          String
+  bgGradient     String
+  description    String     @db.Text
+  isHotZone      Boolean    @default(false)
+  popularTrial   String?
+
+  trials         ProTrial[]
+
+  @@map("aitu_zones")
+}
+
+model ProTrial {
+  id             String           @id @default(uuid())
+  zoneId         String
+  zone           AituZone         @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  employerId     String?
+  employer       EmployerProfile? @relation(fields: [employerId], references: [id], onDelete: SetNull)
+
+  title          String
+  format         String
+  duration       String
+  address        String
+  metro          String?
+  nextDate       DateTime
+  availableSlots Int
+  maxSlots       Int
+  ageLimit       String
+  tags           String[]
+  rating         Float            @default(5.0)
+  reviewsCount   Int              @default(0)
+  description    String           @db.Text
+
+  bookings       TrialBooking[]
+  reviews        TrialReview[]
+
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@map("pro_trials")
+}
+
+model TrialBooking {
+  id             String         @id @default(uuid())
+  trialId        String
+  trial          ProTrial       @relation(fields: [trialId], references: [id], onDelete: Cascade)
+  studentId      String
+  student        StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  status         BookingStatus  @default(REGISTERED)
+  parentApproval ParentApproval?
+  bookedAt       DateTime       @default(now())
+  attendedAt     DateTime?
+
+  @@unique([trialId, studentId])
+  @@map("trial_bookings")
+}
+
+model TrialReview {
+  id             String    @id @default(uuid())
+  trialId        String
+  trial          ProTrial  @relation(fields: [trialId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  rating         Int
+  comment        String?   @db.Text
+  createdAt      DateTime  @default(now())
+
+  @@map("trial_reviews")
+}
+
+// ----------------------------------------------------
+// КАРЬЕРНЫЙ МАРШРУТ (ROADMAP)
+// ----------------------------------------------------
+
+model RoadmapStage {
+  id             String         @id @default(uuid())
+  studentId      String
+  student        StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  stageNumber    Int
+  title          String
+  subtitle       String?
+  badge          String?
+  description    String         @db.Text
+  status         StageStatus    @default(UPCOMING)
+  order          Int            @default(0)
+
+  milestones     RoadmapMilestone[]
+  mentorReviews  MentorReview[]
+
+  updatedAt      DateTime       @updatedAt
+
+  @@map("roadmap_stages")
+}
+
+model RoadmapMilestone {
+  id          String       @id @default(uuid())
+  stageId     String
+  stage       RoadmapStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+
+  title       String
+  isCompleted Boolean      @default(false)
+  completedAt DateTime?
+
+  @@map("roadmap_milestones")
+}
+
+// ----------------------------------------------------
+// ВАКАНСИИ, СТАЖИРОВКИ И ОТКЛИКИ
+// ----------------------------------------------------
+
+model Vacancy {
+  id           String          @id @default(uuid())
+  employerId   String
+  employer     EmployerProfile @relation(fields: [employerId], references: [id], onDelete: Cascade)
+
+  title        String
+  salary       String?
+  type         VacancyType     @default(INTERNSHIP)
+  description  String?         @db.Text
+  requirements String[]
+  location     String?
+  isActive     Boolean         @default(true)
+
+  applications JobApplication[]
+
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@map("vacancies")
+}
+
+model JobApplication {
+  id          String            @id @default(uuid())
+  vacancyId   String
+  vacancy     Vacancy           @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  studentId   String
+  student     StudentProfile    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  status      ApplicationStatus @default(SUBMITTED)
+  matchScore  Int?
+  coverLetter String?           @db.Text
+  appliedAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@unique([vacancyId, studentId])
+  @@map("job_applications")
+}
+
+// ----------------------------------------------------
+// ЧАТ И СЕССИИ ИИ-АССИСТЕНТА
+// ----------------------------------------------------
+
+model ChatSession {
+  id           String         @id @default(uuid())
+  studentId    String
+  student      StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  scenario     ScenarioType   @default(A)
+  currentStage String         @default("interests")
+  
+  messages     ChatMessage[]
+
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id        String      @id @default(uuid())
+  sessionId String
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  role      String
+  content   String      @db.Text
+  createdAt DateTime    @default(now())
+
+  @@map("chat_messages")
+}
+
+// ----------------------------------------------------
+// СОГЛАСОВАНИЯ РОДИТЕЛЕЙ И РЕВЬЮ НАСТАВНИКОВ
+// ----------------------------------------------------
+
+model ParentApproval {
+  id             String         @id @default(uuid())
+  parentId       String
+  parent         ParentProfile  @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  studentId      String
+  student        StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  bookingId      String?        @unique
+  booking        TrialBooking?  @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  status         ApprovalStatus @default(PENDING)
+  title          String
+  requestedAt    DateTime       @default(now())
+  respondedAt    DateTime?
+
+  @@map("parent_approvals")
+}
+
+model MentorReview {
+  id         String         @id @default(uuid())
+  mentorId   String
+  mentor     MentorProfile  @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+  studentId  String
+  student    StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  stageId    String?
+  stage      RoadmapStage?  @relation(fields: [stageId], references: [id], onDelete: SetNull)
+
+  comment    String         @db.Text
+  isVerified Boolean        @default(false)
+  createdAt  DateTime       @default(now())
+
+  @@map("mentor_reviews")
+}

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CAREER_ROADMAP_STAGES } from '../../mock/data';
+import { api } from '../../services/api';
 import { MentorControlsModal } from './MentorControlsModal';
 import { 
   IconRoadmap, 
@@ -9,8 +10,19 @@ import {
 } from '../common/Icons';
 
 export const CareerRoadmap = ({ activeRole }) => {
+  const [stages, setStages] = useState(CAREER_ROADMAP_STAGES);
   const [activeScenario, setActiveScenario] = useState('B'); // A, B, C
   const [showMentorModal, setShowMentorModal] = useState(false);
+
+  useEffect(() => {
+    api.getCareerRoadmap()
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setStages(data);
+        }
+      })
+      .catch((err) => console.warn('Using local roadmap stages fallback', err));
+  }, []);
 
   return (
     <div style={styles.container} className="animate-fade-in">
@@ -87,13 +99,13 @@ export const CareerRoadmap = ({ activeRole }) => {
         </div>
 
         <div style={styles.timelineWrapper}>
-          {CAREER_ROADMAP_STAGES.map((stage, idx) => {
+          {stages.map((stage, idx) => {
             const isDone = stage.status === 'completed';
             const isInProgress = stage.status === 'in_progress';
             return (
               <div key={stage.id} style={styles.timelineItem}>
                 {/* Connector Line */}
-                {idx < CAREER_ROADMAP_STAGES.length - 1 && (
+                {idx < stages.length - 1 && (
                   <div
                     style={{
                       ...styles.connectorLine,
