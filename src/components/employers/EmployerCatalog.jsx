@@ -1,27 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { EMPLOYERS_LIST } from '../../mock/data';
 import { api } from '../../services/api';
 import { InternshipModal } from './InternshipModal';
 import { 
   IconBriefcase, 
   IconShield, 
-  IconMapPin, 
-  IconArrowRight 
+  IconMapPin
 } from '../common/Icons';
 
 export const EmployerCatalog = ({ activeRole }) => {
-  const [employers, setEmployers] = useState(EMPLOYERS_LIST);
+  const [employers, setEmployers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selectedVacancy, setSelectedVacancy] = useState(null);
   const [selectedCompany, setSelectedCompany] = useState(null);
 
   useEffect(() => {
+    setLoading(true);
     api.getEmployers()
       .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
+        if (Array.isArray(data)) {
           setEmployers(data);
         }
       })
-      .catch((err) => console.warn('Using local employers fallback', err));
+      .catch((err) => console.warn('Could not load employers from API:', err.message))
+      .finally(() => setLoading(false));
   }, []);
 
   const handleApply = (vacancy, companyName) => {
@@ -62,52 +63,64 @@ export const EmployerCatalog = ({ activeRole }) => {
         </div>
       </div>
 
-      {/* Employers List */}
-      <div style={styles.employersGrid}>
-        {employers.map((emp) => (
-          <div key={emp.id} className="card card-hoverable" style={styles.empCard}>
-            <div style={styles.empHeader}>
-              <img src={emp.logo} alt={emp.name} style={styles.logoImg} />
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <h3 style={styles.companyName}>{emp.name}</h3>
-                  <IconShield size={16} color="#0066ff" />
-                </div>
-                <span className="badge badge-navy" style={{ marginTop: '2px' }}>{emp.industry}</span>
-              </div>
-            </div>
-
-            <p style={styles.companyDesc}>{emp.description}</p>
-
-            <div style={styles.locationRow}>
-              <IconMapPin size={15} color="#64748b" />
-              <span>{emp.address}</span>
-            </div>
-
-            {/* Vacancies / Internships List */}
-            <div style={styles.vacanciesBox}>
-              <h4 style={styles.vacTitle}>Доступные позиции и стажировки:</h4>
-              <div style={styles.vacList}>
-                {emp.vacancies.map((v) => (
-                  <div key={v.id} style={styles.vacItem}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: '0.88rem', color: '#0f172a' }}>{v.title}</div>
-                      <div style={{ fontSize: '0.78rem', color: '#0066ff' }}>{v.salary} • {v.type}</div>
-                    </div>
-                    <button
-                      className="btn btn-secondary"
-                      style={{ padding: '6px 12px', fontSize: '0.78rem' }}
-                      onClick={() => handleApply(v, emp.name)}
-                    >
-                      Откликнуться
-                    </button>
+      {loading && employers.length === 0 ? (
+        <div style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>
+          Загрузка списка работодателей и вакансий...
+        </div>
+      ) : (
+        /* Employers List */
+        <div style={styles.employersGrid}>
+          {employers.map((emp) => (
+            <div key={emp.id} className="card card-hoverable" style={styles.empCard}>
+              <div style={styles.empHeader}>
+                <img src={emp.logo} alt={emp.name} style={styles.logoImg} />
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <h3 style={styles.companyName}>{emp.name}</h3>
+                    <IconShield size={16} color="#0066ff" />
                   </div>
-                ))}
+                  <span className="badge badge-navy" style={{ marginTop: '2px' }}>{emp.industry}</span>
+                </div>
+              </div>
+
+              <p style={styles.companyDesc}>{emp.description}</p>
+
+              <div style={styles.locationRow}>
+                <IconMapPin size={15} color="#64748b" />
+                <span>{emp.address}</span>
+              </div>
+
+              {/* Vacancies / Internships List */}
+              <div style={styles.vacanciesBox}>
+                <h4 style={styles.vacTitle}>Доступные позиции и стажировки:</h4>
+                <div style={styles.vacList}>
+                  {emp.vacancies && emp.vacancies.length > 0 ? (
+                    emp.vacancies.map((v) => (
+                      <div key={v.id} style={styles.vacItem}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.88rem', color: '#0f172a' }}>{v.title}</div>
+                          <div style={{ fontSize: '0.78rem', color: '#0066ff' }}>{v.salary} • {v.type}</div>
+                        </div>
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '6px 12px', fontSize: '0.78rem' }}
+                          onClick={() => handleApply(v, emp.name)}
+                        >
+                          Откликнуться
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                      В настоящее время открытых позиций нет.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -189,3 +202,5 @@ const styles = {
     border: '1px solid #e2e8f0'
   }
 };
+
+export default EmployerCatalog;

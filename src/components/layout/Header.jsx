@@ -9,15 +9,41 @@ import {
   IconCheck 
 } from '../common/Icons';
 
-export const Header = ({ currentRole, activeTab, setActiveTab, onStartTour, rolesList, activeRoleId, onSelectRole }) => {
+export const Header = ({ 
+  currentRole, 
+  activeTab, 
+  setActiveTab, 
+  onStartTour, 
+  currentUser,
+  onLogout
+}) => {
   const [showNotifications, setShowNotifications] = useState(false);
-  const [showRoleDropdown, setShowRoleDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   const notificationsList = [
-    { id: 1, text: 'Вам зачислена проба «3D-моделирование на ЧПУ»', date: 'Сегодня, 14:20', isNew: true },
-    { id: 2, text: 'Наставник Елена Сергеевна одобрила Ваш маршрут', date: 'Вчера, 18:05', isNew: false }
+    { id: 1, text: 'Цифровой профиль синхронизирован с базой данных СПб', date: 'Сегодня', isNew: true },
+    { id: 2, text: 'Доступны актуальные пробы в лабораториях АИТУ', date: 'Сегодня', isNew: false }
   ];
+
+  const getRoleLabel = (role) => {
+    switch (role?.toUpperCase()) {
+      case 'STUDENT': return 'Школьник';
+      case 'MENTOR': return 'Наставник';
+      case 'PARENT': return 'Родитель';
+      case 'EMPLOYER': return 'Работодатель';
+      case 'ADMIN': return 'Администратор';
+      default: return 'Школьник';
+    }
+  };
+
+  const getRoleBadgeStyle = (role) => {
+    switch (role?.toUpperCase()) {
+      case 'MENTOR': return { backgroundColor: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' };
+      case 'PARENT': return { backgroundColor: '#fffbeb', color: '#b45309', border: '1px solid #fde68a' };
+      case 'EMPLOYER': return { backgroundColor: '#f5f3ff', color: '#6d28d9', border: '1px solid #ddd6fe' };
+      default: return { backgroundColor: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd' };
+    }
+  };
 
   return (
     <header style={styles.header}>
@@ -32,7 +58,7 @@ export const Header = ({ currentRole, activeTab, setActiveTab, onStartTour, role
           <div style={styles.topGovRight}>
             <div style={styles.statusGosuTag}>
               <IconShield size={13} color="#6ee7b7" />
-              <span>ЕСИА Госуслуги</span>
+              <span>{currentUser?.gosuslugiVerified ? 'ЕСИА Госуслуги (Подтверждено)' : 'ЕСИА Госуслуги'}</span>
             </div>
             <button onClick={onStartTour} style={styles.tourPillBtn}>
               ⚡ Интерактивный тур
@@ -70,56 +96,13 @@ export const Header = ({ currentRole, activeTab, setActiveTab, onStartTour, role
           />
         </div>
 
-        {/* Actions & Role Switcher */}
+        {/* Actions & User State */}
         <div style={styles.headerRight}>
-          {/* Role Dropdown */}
-          <div style={{ position: 'relative' }}>
-            <button 
-              onClick={() => {
-                setShowRoleDropdown(!showRoleDropdown);
-                setShowNotifications(false);
-              }}
-              style={styles.roleSwitcherBtn}
-            >
-              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 500 }}>Роль:</span>
-              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0a2540' }}>{currentRole.title}</span>
-              <IconChevronDown size={14} color="#64748b" />
-            </button>
-
-            {showRoleDropdown && (
-              <div style={styles.roleDropdown} className="animate-fade-in">
-                <div style={{ padding: '6px 10px', fontSize: '0.72rem', color: '#64748b', fontWeight: 700, borderBottom: '1px solid #f1f5f9' }}>
-                  ВЫБОР РОЛИ ИНТЕРФЕЙСА:
-                </div>
-                {rolesList.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => {
-                      onSelectRole(r);
-                      setShowRoleDropdown(false);
-                    }}
-                    style={{
-                      ...styles.roleDropdownItem,
-                      backgroundColor: r.id === activeRoleId ? '#f0f9ff' : 'transparent',
-                      fontWeight: r.id === activeRoleId ? 700 : 500
-                    }}
-                  >
-                    <span>{r.title}</span>
-                    {r.id === activeRoleId && <IconCheck size={14} color="#0066ff" />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
           {/* Notifications Button */}
           <div style={{ position: 'relative' }}>
             <button 
               style={styles.iconBtn} 
-              onClick={() => {
-                setShowNotifications(!showNotifications);
-                setShowRoleDropdown(false);
-              }} 
+              onClick={() => setShowNotifications(!showNotifications)} 
               title="Уведомления"
             >
               <IconBell size={18} color="#0a2540" />
@@ -149,14 +132,42 @@ export const Header = ({ currentRole, activeTab, setActiveTab, onStartTour, role
             )}
           </div>
 
-          {/* Avatar Profile Link */}
-          <button 
-            onClick={() => setActiveTab('profile')}
-            style={styles.avatarBtn}
-            title="Мой цифровой профиль"
-          >
-            <img src={currentRole.avatar} alt={currentRole.name} style={styles.avatarImg} />
-          </button>
+          {/* User Profile / Authentication Button */}
+          {currentUser ? (
+            <div style={styles.userProfileGroup}>
+              <div style={{ ...styles.userRoleBadge, ...getRoleBadgeStyle(currentUser.role) }}>
+                {getRoleLabel(currentUser.role)}
+              </div>
+              <button 
+                onClick={() => setActiveTab('profile')}
+                style={styles.avatarBtn}
+                title={`Профиль: ${currentUser.fullName || 'Пользователь'}`}
+              >
+                <img 
+                  src={currentUser.avatarUrl || currentRole.avatar} 
+                  alt={currentUser.fullName || currentRole.name} 
+                  style={styles.avatarImg} 
+                />
+                <span style={styles.userNameHeader}>{currentUser.fullName || currentRole.name}</span>
+              </button>
+              <button 
+                onClick={onLogout}
+                style={styles.logoutBtn}
+                title="Выйти из аккаунта"
+              >
+                Выйти
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button 
+                onClick={() => setActiveTab('login')}
+                style={styles.loginNavBtn}
+              >
+                Войти в систему
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>
@@ -286,40 +297,18 @@ const styles = {
     gap: '12px',
     position: 'relative'
   },
-  roleSwitcherBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    padding: '6px 14px',
-    backgroundColor: '#f8fafc',
-    borderRadius: '20px',
-    border: '1px solid #cbd5e1',
-    cursor: 'pointer'
+  userRoleBadge: {
+    padding: '3px 10px',
+    borderRadius: '12px',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    letterSpacing: '0.02em',
+    textTransform: 'uppercase'
   },
-  roleDropdown: {
-    position: 'absolute',
-    top: 'calc(100% + 8px)',
-    right: 0,
-    width: '260px',
-    backgroundColor: '#ffffff',
-    borderRadius: '14px',
-    boxShadow: '0 15px 35px rgba(10,37,64,0.25)',
-    border: '1px solid #cbd5e1',
-    padding: '6px',
-    zIndex: 99999
-  },
-  roleDropdownItem: {
-    width: '100%',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '10px 12px',
-    borderRadius: '8px',
-    border: 'none',
-    fontSize: '0.82rem',
-    color: '#0f172a',
-    cursor: 'pointer',
-    textAlign: 'left'
+  userNameHeader: {
+    fontSize: '0.84rem',
+    fontWeight: 600,
+    color: '#0a2540'
   },
   iconBtn: {
     position: 'relative',
@@ -342,7 +331,38 @@ const styles = {
     background: 'none',
     border: 'none',
     cursor: 'pointer',
-    padding: 0
+    padding: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px'
+  },
+  userProfileGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px'
+  },
+  logoutBtn: {
+    backgroundColor: '#fee2e2',
+    color: '#dc2626',
+    border: '1px solid #fecaca',
+    borderRadius: '16px',
+    padding: '5px 12px',
+    fontSize: '0.78rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
+  },
+  loginNavBtn: {
+    backgroundColor: '#0066ff',
+    color: '#ffffff',
+    border: 'none',
+    borderRadius: '18px',
+    padding: '7px 16px',
+    fontSize: '0.82rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    boxShadow: '0 2px 8px rgba(0, 102, 255, 0.25)',
+    transition: 'all 0.2s ease'
   },
   avatarImg: {
     width: '38px',

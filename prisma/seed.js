@@ -1,7 +1,10 @@
+import bcrypt from 'bcryptjs';
 import { prisma } from '../server/db.js';
 
 async function main() {
   console.log('🌱 Starting database seeding...');
+
+  const defaultPasswordHash = await bcrypt.hash('password123', 10);
 
   // 1. Очистка старых данных перед сидированием
   await prisma.jobApplication.deleteMany();
@@ -33,6 +36,7 @@ async function main() {
     data: {
       id: 'user-mentor-1',
       email: 'volkova.elena@aitu.spb.ru',
+      passwordHash: defaultPasswordHash,
       fullName: 'Елена Сергеевна Волкова',
       role: 'MENTOR',
       avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
@@ -53,6 +57,7 @@ async function main() {
     data: {
       id: 'user-parent-1',
       email: 'mikhail.smirnov@mail.ru',
+      passwordHash: defaultPasswordHash,
       fullName: 'Михаил Анатольевич Смирнов',
       role: 'PARENT',
       avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
@@ -71,6 +76,7 @@ async function main() {
     data: {
       id: 'user-student-1',
       email: 'alex.smirnov@spb-school214.ru',
+      passwordHash: defaultPasswordHash,
       fullName: 'Александр Смирнов',
       role: 'STUDENT',
       avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
@@ -96,6 +102,7 @@ async function main() {
     data: {
       id: 'user-emp-1',
       email: 'sokolov.id@gazprom-neft.spb.ru',
+      passwordHash: defaultPasswordHash,
       fullName: 'Игорь Дмитриевич Соколов',
       role: 'EMPLOYER',
       avatarUrl: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80',
@@ -120,6 +127,7 @@ async function main() {
     data: {
       id: 'user-emp-2',
       email: 'hr@vk.spb.ru',
+      passwordHash: defaultPasswordHash,
       fullName: 'Анна Павлова',
       role: 'EMPLOYER',
       avatarUrl: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=150&auto=format&fit=crop&q=80',
@@ -144,6 +152,7 @@ async function main() {
     data: {
       id: 'user-emp-3',
       email: 'hr@power-m.ru',
+      passwordHash: defaultPasswordHash,
       fullName: 'Дмитрий Николаевич Орлов',
       role: 'EMPLOYER',
       avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',

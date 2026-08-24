@@ -2,14 +2,18 @@ const API_BASE_URL =
   import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
 /**
- * Вспомогательная функция для HTTP запросов с fallback'ом
+ * Вспомогательная функция для HTTP запросов с fallback'ом и авторизацией
  */
 async function request(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
+  const token = localStorage.getItem('career_token');
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+
   try {
     const res = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
+        ...authHeaders,
         ...options.headers
       },
       ...options
@@ -26,16 +30,57 @@ async function request(endpoint, options = {}) {
 }
 
 export const api = {
+  // 0. Аутентификация и сессии
+  register: ({ firstName, lastName, email, password, role }) =>
+    request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ firstName, lastName, email, password, role })
+    }),
+
+  login: ({ email, password, role }) =>
+    request('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, role })
+    }),
+
+  getMe: () => request('/api/auth/me'),
+
+  logout: () => {
+    localStorage.removeItem('career_token');
+    localStorage.removeItem('career_user');
+  },
+
+  setSession: (token, user) => {
+    if (token) localStorage.setItem('career_token', token);
+    if (user) localStorage.setItem('career_user', JSON.stringify(user));
+  },
+
+  getCurrentUser: () => {
+    try {
+      const u = localStorage.getItem('career_user');
+      return u ? JSON.parse(u) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  getToken: () => localStorage.getItem('career_token'),
+
   // 1. Роли и профили
   getRoles: () => request('/api/users/roles'),
   getStudentProfile: () => request('/api/profile/student'),
+  updateStudentProfile: (data) =>
+    request('/api/profile/student', {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    }),
 
   // 2. Диагностика
   getDiagnosticQuestions: () => request('/api/diagnostics/questions'),
-  submitDiagnosticQuiz: (answers, studentId) =>
+  submitDiagnosticQuiz: (answers) =>
     request('/api/diagnostics/submit', {
       method: 'POST',
-      body: JSON.stringify({ answers, studentId })
+      body: JSON.stringify({ answers })
     }),
 
   // 3. Зоны и Профпробы
@@ -57,14 +102,21 @@ export const api = {
     }),
 
   // 6. Кабинет наставника
+  getMentorProfile: () => request('/api/mentor/profile'),
   getMentorStudents: () => request('/api/mentor/students'),
   addMentorNote: (studentId, comment) =>
     request(`/api/mentor/students/${studentId}/note`, {
       method: 'POST',
       body: JSON.stringify({ comment })
     }),
+  bulkBookMentorTrial: (trialId) =>
+    request('/api/mentor/bulk-book', {
+      method: 'POST',
+      body: JSON.stringify({ trialId })
+    }),
 
   // 7. Кабинет родителя
+  getParentProfile: () => request('/api/parent/profile'),
   getParentApprovals: () => request('/api/parent/approvals'),
   respondParentApproval: (approvalId, status) =>
     request(`/api/parent/approvals/${approvalId}/respond`, {
@@ -72,7 +124,21 @@ export const api = {
       body: JSON.stringify({ status })
     }),
 
-  // 8. ИИ-Ассистент
+  // 8. Кабинет работодателя
+  getEmployerProfile: () => request('/api/employer/profile'),
+  getEmployerApplicants: () => request('/api/employer/applicants'),
+  createEmployerVacancy: (data) =>
+    request('/api/employer/vacancies', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+  updateApplicationStatus: (applicationId, status) =>
+    request(`/api/employer/applications/${applicationId}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status })
+    }),
+
+  // 9. ИИ-Ассистент
   sendChatMessage: (message, scenario = 'A', stage = 'interests', sessionId = null) =>
     request('/api/assistant/chat', {
       method: 'POST',

@@ -1,44 +1,60 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
 import { 
-  IconUser, 
   IconBrain, 
   IconMapPin, 
   IconCheck, 
   IconCalendar, 
-  IconAward, 
-  IconShield 
+  IconShield,
+  IconSparkles
 } from '../common/Icons';
 
 export const ParentView = ({ activeTab }) => {
-  const [approvedTrial, setApprovedTrial] = useState(false);
+  const [parentInfo, setParentInfo] = useState(null);
   const [approvals, setApprovals] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadParentData = () => {
+    setLoading(true);
+    Promise.all([
+      api.getParentProfile().catch(() => null),
+      api.getParentApprovals().catch(() => [])
+    ])
+      .then(([pProfile, pApprovals]) => {
+        if (pProfile) setParentInfo(pProfile);
+        if (Array.isArray(pApprovals)) setApprovals(pApprovals);
+      })
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
-    api.getParentApprovals()
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setApprovals(data);
-          const hasPending = data.some((a) => a.status === 'PENDING');
-          setApprovedTrial(!hasPending);
-        }
-      })
-      .catch((err) => console.warn('Using local approvals fallback', err));
+    loadParentData();
   }, []);
 
-  const handleApprove = async () => {
-    if (approvals.length > 0) {
-      const pending = approvals.find((a) => a.status === 'PENDING');
-      if (pending) {
-        try {
-          await api.respondParentApproval(pending.id, 'APPROVED');
-        } catch (err) {
-          console.warn('Could not submit approval to API:', err.message);
-        }
-      }
+  const handleApprove = async (approvalId) => {
+    try {
+      await api.respondParentApproval(approvalId, 'APPROVED');
+      setApprovals((prev) =>
+        prev.map((a) => (a.id === approvalId ? { ...a, status: 'APPROVED' } : a))
+      );
+      loadParentData();
+    } catch (err) {
+      alert('Ошибка при согласовании: ' + err.message);
     }
-    setApprovedTrial(true);
   };
+
+  const parentName = parentInfo?.name || 'Родитель (Законный представитель)';
+  const children = parentInfo?.children || [];
+  const primaryChild = children[0] || null;
+  const childName = primaryChild ? `${primaryChild.name} (${primaryChild.grade})` : 'Ученик прикреплен';
+  const childSchool = primaryChild?.school || 'ГБОУ СОШ Санкт-Петербурга';
+
+  const pendingApprovals = approvals.filter((a) => a.status === 'PENDING');
+  const approvedApprovals = approvals.filter((a) => a.status === 'APPROVED');
+  const allApproved = pendingApprovals.length === 0;
+
+  const childTopDirection = primaryChild?.diagnosticResult?.topDirections?.[0]?.name || 'IT & Аналитика данных';
+  const childTopMatch = primaryChild?.diagnosticResult?.topDirections?.[0]?.match || 94;
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -50,10 +66,10 @@ export const ParentView = ({ activeTab }) => {
               Кабинет Родителя (Законного Представителя)
             </span>
             <h2 style={{ color: '#ffffff', margin: '8px 0 4px 0', fontSize: '1.45rem' }}>
-              Михаил Анатольевич Смирнов • Ребёнок: Александр (9 "Б")
+              {parentName} • Ребёнок: {childName}
             </h2>
             <p style={{ color: '#fef3c7', margin: 0, fontSize: '0.85rem' }}>
-              ГБОУ СОШ №214 • Связано через аккаунт ЕСИА Госуслуги родителя
+              {childSchool} • Связано через аккаунт ЕСИА Госуслуги родителя
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'rgba(255,255,255,0.15)', padding: '8px 14px', borderRadius: '14px', fontSize: '0.82rem' }}>
@@ -73,7 +89,7 @@ export const ParentView = ({ activeTab }) => {
                 <IconBrain size={22} color="#0066ff" />
               </div>
               <div>
-                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0066ff' }}>94% IT</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0066ff' }}>{childTopMatch}% IT</div>
                 <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>Главная склонность</div>
               </div>
             </div>
@@ -83,7 +99,7 @@ export const ParentView = ({ activeTab }) => {
                 <IconMapPin size={22} color="#ff9f1c" />
               </div>
               <div>
-                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#ff9f1c' }}>2 пробы</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#ff9f1c' }}>{approvals.length} пробы</div>
                 <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>Запланировано в АИТУ</div>
               </div>
             </div>
@@ -93,7 +109,7 @@ export const ParentView = ({ activeTab }) => {
                 <IconCheck size={22} color="#10b981" />
               </div>
               <div>
-                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#10b981' }}>{approvedTrial ? '2 из 2' : '1 из 2'}</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#10b981' }}>{approvedApprovals.length} из {approvals.length}</div>
                 <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>Согласовано родителем</div>
               </div>
             </div>
@@ -101,10 +117,10 @@ export const ParentView = ({ activeTab }) => {
 
           <div className="card">
             <h3 style={{ fontSize: '1.15rem', color: '#0a2540', marginBottom: '12px' }}>
-              👨‍👩‍👦 Обзор активности ребёнка в навигаторе
+              👨‍👩‍👦 Обзор активности ребёнка: {primaryChild?.name || 'Ученик'}
             </h3>
             <p style={{ fontSize: '0.88rem', color: '#475569', lineHeight: 1.5, margin: 0 }}>
-              Александр успешно завершил этап психологической диагностики (Холланд/RIASEC) и зачислен на 2 практические пробы. Вы имеете право согласовать выезды за пределы школы.
+              {primaryChild?.name || 'Ребёнок'} проходит этапы профориентации на платформе Санкт-Петербурга. Направление с наибольшим потенциалом: <strong>{childTopDirection}</strong>. Вы можете в один клик подтверждать согласия на выездные мероприятия за пределы школы.
             </p>
           </div>
         </div>
@@ -114,27 +130,27 @@ export const ParentView = ({ activeTab }) => {
       {activeTab === 'diagnostics' && (
         <div className="card animate-fade-in">
           <h3 style={{ fontSize: '1.2rem', color: '#0a2540', marginBottom: '14px' }}>
-            📊 Подробный отчёт психолога-профориентатора для родителей
+            📊 Подробный отчёт профориентации для родителей
           </h3>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '16px' }}>
             <div style={{ padding: '16px', borderRadius: '14px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
               <div style={{ fontSize: '0.82rem', color: '#64748b', fontWeight: 600 }}>ВЫЯВЛЕННЫЕ ИНТЕРЕСЫ (RIASEC)</div>
               <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0066ff', margin: '4px 0 8px 0' }}>
-                Информационные технологии (94%)
+                {childTopDirection} ({childTopMatch}%)
               </div>
               <p style={{ fontSize: '0.83rem', color: '#475569', lineHeight: 1.45, margin: 0 }}>
-                Александр демонстрирует высокий потенциал в программировании и алгоритмах. Рекомендуется профильное направление в колледжах СПб или СПбПУ.
+                Демонстрирует высокий потенциал в алгоритмах и цифровых продуктах. Рекомендуется профильное направление в колледжах СПб или ВУЗах-партнерах.
               </p>
             </div>
 
             <div style={{ padding: '16px', borderRadius: '14px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
-              <div style={{ fontSize: '0.82rem', color: '#64748b', fontWeight: 600 }}>СКУЛЬПТУРА ИНЖЕНЕРНЫХ НАВЫКОВ</div>
+              <div style={{ fontSize: '0.82rem', color: '#64748b', fontWeight: 600 }}>ПРАКТИЧЕСКИЕ НАВЫКИ</div>
               <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#10b981', margin: '4px 0 8px 0' }}>
-                Инженерия & ЧПУ (87%)
+                Инженерия & CAD (87%)
               </div>
               <p style={{ fontSize: '0.83rem', color: '#475569', lineHeight: 1.45, margin: 0 }}>
-                Развитые пространственные и конструкторские способности. Посещение пробы ЧПУ 06.08 укрепит интерес.
+                Развитые конструкторские и аналитические способности. Посещение практических проб в АИТУ закрепит интерес.
               </p>
             </div>
           </div>
@@ -148,34 +164,65 @@ export const ParentView = ({ activeTab }) => {
             <h3 style={{ fontSize: '1.15rem', color: '#0a2540', margin: 0 }}>
               📝 Согласование выездных практических мероприятий
             </h3>
-            <span className="badge badge-gold">{approvedTrial ? 'Все выезды одобрены' : 'Требует подписи (1)'}</span>
+            <span className={`badge ${allApproved ? 'badge-success' : 'badge-gold'}`}>
+              {allApproved ? 'Все выезды одобрены' : `Требует подписи (${pendingApprovals.length})`}
+            </span>
           </div>
 
-          {!approvedTrial ? (
-            <div style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a', padding: '20px', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: '1rem', color: '#78350f', marginBottom: '4px' }}>
-                  Выездная профпроба «3D-моделирование и печать деталей на ЧПУ»
-                </div>
-                <div style={{ fontSize: '0.85rem', color: '#92400e', marginBottom: '4px' }}>
-                  📍 Площадка: Инженерный корпус АИТУ (м. Кировский завод, ул. Профсоюзная 14)
-                </div>
-                <div style={{ fontSize: '0.82rem', color: '#b45309' }}>
-                  📅 Дата: 06 августа 2026, 12:00 (Длительность: 2.5 часа) • Сопровождающий педагог: Волкова Е.С.
-                </div>
-              </div>
-
-              <button className="btn btn-gold" onClick={handleApprove} style={{ padding: '12px 20px', fontSize: '0.9rem' }}>
-                <IconCheck size={16} /> Подтвердить согласие
-              </button>
+          {approvals.length === 0 ? (
+            <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
+              {loading ? 'Загрузка согласований...' : 'Нет активных запросов на согласование.'}
             </div>
           ) : (
-            <div style={{ backgroundColor: '#ecfdf5', border: '1px solid #a7f3d0', padding: '18px', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '12px', color: '#065f46' }}>
-              <IconCheck size={24} color="#10b981" />
-              <div>
-                <strong style={{ fontSize: '0.98rem' }}>Согласие родителя успешно зафиксировано!</strong>
-                <div style={{ fontSize: '0.82rem' }}>Александр Смирнов зачислен в группу выезда 06.08.2026. Уведомление отправлено наставнику.</div>
-              </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {approvals.map((appr) => {
+                const isPending = appr.status === 'PENDING';
+                return (
+                  <div 
+                    key={appr.id} 
+                    style={{ 
+                      backgroundColor: isPending ? '#fffbeb' : '#ecfdf5', 
+                      border: `1px solid ${isPending ? '#fde68a' : '#a7f3d0'}`, 
+                      padding: '18px 20px', 
+                      borderRadius: '16px', 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center', 
+                      flexWrap: 'wrap', 
+                      gap: '16px' 
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: '1rem', color: isPending ? '#78350f' : '#065f46', marginBottom: '4px' }}>
+                        {appr.title}
+                      </div>
+                      {appr.booking?.trial && (
+                        <div style={{ fontSize: '0.85rem', color: '#475569', marginBottom: '4px' }}>
+                          📍 Площадка: {appr.booking.trial.address} (Формат: {appr.booking.trial.format})
+                        </div>
+                      )}
+                      <div style={{ fontSize: '0.82rem', color: '#64748b' }}>
+                        Ученик: <strong>{appr.student?.user?.fullName || primaryChild?.name}</strong> • Запрос: {new Date(appr.requestedAt).toLocaleDateString('ru-RU')}
+                      </div>
+                    </div>
+
+                    {isPending ? (
+                      <button 
+                        className="btn btn-gold" 
+                        onClick={() => handleApprove(appr.id)} 
+                        style={{ padding: '10px 18px', fontSize: '0.85rem' }}
+                      >
+                        <IconCheck size={16} /> Подтвердить согласие
+                      </button>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', fontWeight: 700, fontSize: '0.85rem' }}>
+                        <IconCheck size={18} color="#10b981" />
+                        <span>Согласие подтверждено</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -185,29 +232,33 @@ export const ParentView = ({ activeTab }) => {
       {activeTab === 'roadmap' && (
         <div className="card animate-fade-in">
           <h3 style={{ fontSize: '1.2rem', color: '#0a2540', marginBottom: '14px' }}>
-            🗓️ Семейный календарь зачисленных мероприятий ребёнка
+            🗓️ Семейный календарь мероприятий ребёнка
           </h3>
-          <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <li style={{ padding: '12px 16px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontWeight: 700, color: '#0a2540' }}>05.08.2026 (14:00) — Проба «React Web Dev»</div>
-                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>АИТУ СПб, ул. Профсоюзная 14 (м. Технологический институт)</div>
-              </div>
-              <span className="badge badge-success">Согласовано</span>
-            </li>
-
-            <li style={{ padding: '12px 16px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontWeight: 700, color: '#0a2540' }}>06.08.2026 (12:00) — Проба «3D Печать ЧПУ»</div>
-                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Инженерный корпус АИТУ (м. Кировский завод)</div>
-              </div>
-              <span className={`badge ${approvedTrial ? 'badge-success' : 'badge-gold'}`}>
-                {approvedTrial ? 'Согласовано' : 'Ожидает согласия'}
-              </span>
-            </li>
-          </ul>
+          {approvals.length === 0 ? (
+            <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
+              Календарь пуст. Записи на профпробы появятся здесь.
+            </div>
+          ) : (
+            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {approvals.map((appr) => (
+                <li key={appr.id} style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: '#0a2540' }}>{appr.title}</div>
+                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                      {appr.booking?.trial?.address || 'АИТУ Санкт-Петербург'}
+                    </div>
+                  </div>
+                  <span className={`badge ${appr.status === 'APPROVED' ? 'badge-success' : 'badge-gold'}`}>
+                    {appr.status === 'APPROVED' ? 'Согласовано' : 'Ожидает согласия'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>
   );
 };
+
+export default ParentView;

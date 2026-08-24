@@ -1,12 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-import { AI_QUICK_SUGGESTIONS } from '../../mock/data';
-
 import {
   IconBot,
   IconSend,
   IconSparkles
 } from '../common/Icons';
+
+const QUICK_SUGGESTIONS = [
+  'Как сопоставляются результаты теста с профпробами?',
+  'Покажи карту зон АИТУ и ближайшие профпробы',
+  'Как записаться на профпробу по React?',
+  'Чем отличаются сценарии А, Б и В?',
+  'Может ли наставник добавить пробы в мой маршрут?'
+];
 
 
 // ============================================================
@@ -181,7 +187,10 @@ export const AiChatWindow = ({
 
           headers: {
             'Content-Type': 'application/json',
-            'Accept': 'application/json'
+            'Accept': 'application/json',
+            ...(localStorage.getItem('career_token')
+              ? { Authorization: `Bearer ${localStorage.getItem('career_token')}` }
+              : {})
           },
 
           body: JSON.stringify({
@@ -689,7 +698,7 @@ export const AiChatWindow = ({
         </div>
 
 
-        {AI_QUICK_SUGGESTIONS.map(
+        {QUICK_SUGGESTIONS.map(
           (chip, index) => (
 
             <button

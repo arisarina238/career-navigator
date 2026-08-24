@@ -14,7 +14,7 @@ export const Navigation = ({ activeTabId, onSelectTab, activeRole }) => {
     if (activeRole?.id === 'mentor') {
       return [
         { id: 'profile', label: '1. Кабинет Наставника', icon: IconUser },
-        { id: 'roadmap', label: '2. Группа 9 "Б" (28 учен.)', icon: IconRoadmap },
+        { id: 'roadmap', label: '2. Реестр учеников и Маршруты', icon: IconRoadmap },
         { id: 'map', label: '3. Назначение профпроб', icon: IconMapPin },
         { id: 'assistant', label: '4. Аналитика группы', icon: IconBot },
         { id: 'diagnostics', label: '5. Диагностика учеников', icon: IconBrain }
@@ -25,7 +25,7 @@ export const Navigation = ({ activeTabId, onSelectTab, activeRole }) => {
       return [
         { id: 'profile', label: '1. Кабинет Родителя', icon: IconUser },
         { id: 'diagnostics', label: '2. Результаты тестов ребенка', icon: IconBrain },
-        { id: 'map', label: '3. Согласование записей (1 треб.)', icon: IconMapPin },
+        { id: 'map', label: '3. Согласование выездов', icon: IconMapPin },
         { id: 'roadmap', label: '4. Календарь выездов', icon: IconRoadmap }
       ];
     }
@@ -33,7 +33,7 @@ export const Navigation = ({ activeTabId, onSelectTab, activeRole }) => {
     if (activeRole?.id === 'employer') {
       return [
         { id: 'profile', label: '1. Кабинет Компании', icon: IconUser },
-        { id: 'employers', label: '2. Отклики & Кандидаты (14)', icon: IconBriefcase },
+        { id: 'employers', label: '2. Отклики & Кандидаты', icon: IconBriefcase },
         { id: 'map', label: '3. Профпробы компании', icon: IconMapPin },
         { id: 'assistant', label: '4. Аналитика предложений', icon: IconBot }
       ];
@@ -121,3 +121,5 @@ const styles = {
     borderRadius: '3px 3px 0 0'
   }
 };
+
+export default Navigation;

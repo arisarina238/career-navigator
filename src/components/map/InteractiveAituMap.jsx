@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { AITU_ZONES } from '../../mock/data';
 import { api } from '../../services/api';
 import { BookingModal } from './BookingModal';
 import { 
@@ -25,27 +24,51 @@ const ICON_MAP = {
 };
 
 export const InteractiveAituMap = () => {
-  const [zones, setZones] = useState(AITU_ZONES);
-  const [selectedZoneId, setSelectedZoneId] = useState('it');
+  const [zones, setZones] = useState([]);
+  const [selectedZoneId, setSelectedZoneId] = useState(null);
   const [selectedTrial, setSelectedTrial] = useState(null);
   const [filterFormat, setFilterFormat] = useState('all');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     api.getAituZones()
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
           setZones(data);
+          setSelectedZoneId(data[0].id);
         }
       })
-      .catch((err) => console.warn('Using local zones fallback', err));
+      .catch((err) => console.warn('Could not load zones from DB:', err.message))
+      .finally(() => setLoading(false));
   }, []);
 
-  const selectedZone = zones.find((z) => z.id === selectedZoneId) || zones[0];
+  const selectedZone = zones.find((z) => z.id === selectedZoneId) || zones[0] || null;
 
-  const filteredTrials = (selectedZone.trials || []).filter((t) => {
+  const filteredTrials = (selectedZone?.trials || []).filter((t) => {
     if (filterFormat === 'all') return true;
     return t.format.toLowerCase().includes(filterFormat.toLowerCase());
   });
+
+  if (loading) {
+    return (
+      <div className="card animate-fade-in" style={{ textAlign: 'center', padding: '60px 20px' }}>
+        <div style={{ width: '48px', height: '48px', borderRadius: '50%', border: '4px solid #f1f5f9', borderTopColor: '#0066ff', margin: '0 auto 16px auto', animation: 'spin 1s linear infinite' }} />
+        <h3 style={{ color: '#0a2540', marginBottom: '8px' }}>Загрузка интерактивной карты зон и проб из базы данных...</h3>
+        <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Синхронизируем доступные слоты лабораторий АИТУ СПб</p>
+      </div>
+    );
+  }
+
+  if (zones.length === 0) {
+    return (
+      <div className="card animate-fade-in" style={{ textAlign: 'center', padding: '40px 20px' }}>
+        <IconMapPin size={48} color="#64748b" style={{ marginBottom: '16px' }} />
+        <h3 style={{ color: '#0a2540', marginBottom: '8px' }}>Зоны пока не загружены</h3>
+        <p style={{ color: '#64748b', fontSize: '0.85rem' }}>В базе данных пока нет активных зон АИТУ.</p>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.container} className="animate-fade-in">
@@ -76,7 +99,7 @@ export const InteractiveAituMap = () => {
 
       {/* Visual Zone Selector Grid */}
       <div style={styles.zonesGrid}>
-        {AITU_ZONES.map((zone) => {
+        {zones.map((zone) => {
           const IconComp = ICON_MAP[zone.icon] || IconMapPin;
           const isSelected = selectedZoneId === zone.id;
           return (

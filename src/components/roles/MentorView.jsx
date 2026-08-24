@@ -4,100 +4,44 @@ import {
   IconUser, 
   IconBrain, 
   IconMapPin, 
-  IconBot, 
-  IconRoadmap, 
   IconCheck, 
   IconPlus, 
   IconAward, 
   IconSearch, 
-  IconSparkles,
-  IconCalendar,
   IconClose
 } from '../common/Icons';
 
 export const MentorView = ({ activeTab, onNavigateTab }) => {
+  const [mentorInfo, setMentorInfo] = useState(null);
+  const [students, setStudents] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedStudentForEdit, setSelectedStudentForEdit] = useState(null);
   const [mentorNote, setMentorNote] = useState('');
   const [bulkBookingSuccess, setBulkBookingSuccess] = useState(false);
+  const [bulkTrialName, setBulkTrialName] = useState('');
 
-  // Initial Mock Students Data
-  const [students, setStudents] = useState([
-    {
-      id: 1,
-      name: 'Александр Смирнов',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-      grade: '9 "Б"',
-      aiRecommendation: 'Data Analyst & Web Dev',
-      matchPercent: 94,
-      cluster: 'IT',
-      assignedTrial: 'React Web (05.08)',
-      status: 'verified',
-      mentorComment: 'Высокая склонность к математике и алгоритмам'
-    },
-    {
-      id: 2,
-      name: 'Екатерина Иванова',
-      avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80',
-      grade: '9 "Б"',
-      aiRecommendation: '3D-Моделирование ЧПУ',
-      matchPercent: 89,
-      cluster: 'Engineering',
-      assignedTrial: '3D Печать (06.08)',
-      status: 'verified',
-      mentorComment: 'Отличные показатели пространственного мышления'
-    },
-    {
-      id: 3,
-      name: 'Михаил Петров',
-      avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80',
-      grade: '9 "Б"',
-      aiRecommendation: 'UX/UI Дизайнер интерфейсов',
-      matchPercent: 76,
-      cluster: 'Design',
-      assignedTrial: 'Не зачислен',
-      status: 'pending',
-      mentorComment: 'Требуется консультация родителя по выбору ВУЗа'
-    },
-    {
-      id: 4,
-      name: 'София Ковалева',
-      avatar: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&auto=format&fit=crop&q=80',
-      grade: '9 "Б"',
-      aiRecommendation: 'Биомед диагностика',
-      matchPercent: 82,
-      cluster: 'Medicine',
-      assignedTrial: 'Генетика (10.08)',
-      status: 'verified',
-      mentorComment: 'Успешно проходит школьные химические олимпиады'
-    },
-    {
-      id: 5,
-      name: 'Артем Васильев',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-      grade: '9 "Б"',
-      aiRecommendation: 'Технологический стартап',
-      matchPercent: 71,
-      cluster: 'Business',
-      assignedTrial: 'Не зачислен',
-      status: 'pending',
-      mentorComment: 'Выраженные лидерские качества'
-    }
-  ]);
+  const loadData = () => {
+    setLoading(true);
+    Promise.all([
+      api.getMentorProfile().catch(() => null),
+      api.getMentorStudents().catch(() => [])
+    ])
+      .then(([mentorData, studentsData]) => {
+        if (mentorData) setMentorInfo(mentorData);
+        if (Array.isArray(studentsData)) setStudents(studentsData);
+      })
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
-    api.getMentorStudents()
-      .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
-          setStudents(data);
-        }
-      })
-      .catch((err) => console.warn('Using local students fallback', err));
+    loadData();
   }, []);
 
   const filteredStudents = students.filter((s) => {
-    const matchesSearch = s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.aiRecommendation.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = s.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      (s.aiRecommendation && s.aiRecommendation.toLowerCase().includes(searchQuery.toLowerCase()));
     if (statusFilter === 'all') return matchesSearch;
     if (statusFilter === 'pending') return matchesSearch && s.status === 'pending';
     if (statusFilter === 'verified') return matchesSearch && s.status === 'verified';
@@ -111,21 +55,34 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
 
     try {
       await api.addMentorNote(targetStudentId, noteText);
+      setStudents((prev) =>
+        prev.map((s) => (s.id === targetStudentId ? { ...s, mentorComment: noteText, status: 'verified' } : s))
+      );
+      setSelectedStudentForEdit(null);
+      setMentorNote('');
     } catch (err) {
-      console.warn('Could not save note to API:', err.message);
+      alert('Ошибка при сохранении заметки: ' + err.message);
     }
-
-    setStudents((prev) =>
-      prev.map((s) => (s.id === targetStudentId ? { ...s, mentorComment: noteText, status: 'verified' } : s))
-    );
-    setSelectedStudentForEdit(null);
-    setMentorNote('');
   };
 
-  const handleBulkBooking = () => {
-    setBulkBookingSuccess(true);
-    setTimeout(() => setBulkBookingSuccess(false), 3000);
+  const handleBulkBooking = async () => {
+    try {
+      const res = await api.bulkBookMentorTrial();
+      setBulkTrialName(res.trialTitle || 'Экскурсия в АИТУ');
+      setBulkBookingSuccess(true);
+      loadData();
+      setTimeout(() => setBulkBookingSuccess(false), 4000);
+    } catch (err) {
+      alert('Ошибка при массовой записи: ' + err.message);
+    }
   };
+
+  const mentorName = mentorInfo?.name || 'Педагог-Куратор';
+  const mentorOrg = mentorInfo?.organization || 'МЦК АИТУ / ГБОУ СОШ Санкт-Петербурга';
+  const mentorPos = mentorInfo?.position || 'Куратор карьерных траекторий';
+  const totalStudents = students.length;
+  const verifiedCount = students.filter((s) => s.status === 'verified').length;
+  const pendingCount = students.filter((s) => s.status === 'pending').length;
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -162,14 +119,14 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
                   placeholder="Добавьте рекомендацию педагогического коллектива..."
                   value={mentorNote}
                   onChange={(e) => setMentorNote(e.target.value)}
-                  style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.88rem', fontFamily: 'inherit', outline: 'none' }}
+                  style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.88rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
                 />
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                 <button className="btn btn-secondary" onClick={() => setSelectedStudentForEdit(null)}>Отмена</button>
                 <button className="btn btn-primary" onClick={handleSaveMentorOverride}>
-                  <IconCheck size={16} /> Сохранить изменения
+                  <IconCheck size={16} /> Сохранить в БД
                 </button>
               </div>
             </div>
@@ -182,18 +139,18 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
           <div>
             <span className="badge" style={{ backgroundColor: 'rgba(255,255,255,0.2)', color: '#a7f3d0' }}>
-              Кабинет Педагога-Куратора МКЦ Санкт-Петербурга
+              Кабинет Педагога-Куратора МЦК Санкт-Петербурга
             </span>
             <h2 style={{ color: '#ffffff', margin: '8px 0 4px 0', fontSize: '1.45rem' }}>
-              Елена Сергеевна Волкова • Закрепленный класс: 9 "Б" (28 учащихся)
+              {mentorName} • {mentorPos}
             </h2>
             <p style={{ color: '#d1fae5', margin: 0, fontSize: '0.85rem' }}>
-              ГБОУ СОШ №214 • Модуль управления и верификации ИИ-маршрутов АИТУ
+              {mentorOrg} • База данных участников: {totalStudents} учащихся
             </p>
           </div>
 
           <button className="btn btn-gold" onClick={handleBulkBooking}>
-            <IconPlus size={16} /> Забронировать выезд для всей группы
+            <IconPlus size={16} /> Забронировать выезд для группы
           </button>
         </div>
       </div>
@@ -202,7 +159,7 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
         <div className="card animate-fade-in" style={{ border: '1px solid #10b981', backgroundColor: '#ecfdf5', padding: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#065f46' }}>
             <IconCheck size={20} color="#10b981" />
-            <strong>Обязательный выезд «Экскурсия в АИТУ и лаб. 3D-печати» успешно зачислен для всех 28 учеников класса 9 "Б"!</strong>
+            <strong>Групповая бронь на профпробу «{bulkTrialName}» успешно зачислена для всех {totalStudents} учеников в базе данных!</strong>
           </div>
         </div>
       )}
@@ -217,7 +174,7 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
                 <IconUser size={22} color="#10b981" />
               </div>
               <div>
-                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0a2540' }}>28</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0a2540' }}>{totalStudents}</div>
                 <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>Учеников в группе</div>
               </div>
             </div>
@@ -227,8 +184,8 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
                 <IconBrain size={22} color="#0066ff" />
               </div>
               <div>
-                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0066ff' }}>84.5%</div>
-                <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>Индекс вовлеченности ИИ</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0066ff' }}>{verifiedCount}</div>
+                <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>Верифицировано ЕСИА</div>
               </div>
             </div>
 
@@ -237,8 +194,10 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
                 <IconMapPin size={22} color="#ff9f1c" />
               </div>
               <div>
-                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#ff9f1c' }}>16</div>
-                <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>Запланировано проб</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#ff9f1c' }}>
+                  {students.filter((s) => s.assignedTrial && s.assignedTrial !== 'Не зачислен').length}
+                </div>
+                <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>Зачислены на пробы</div>
               </div>
             </div>
 
@@ -247,7 +206,7 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
                 <IconAward size={22} color="#ff4d4f" />
               </div>
               <div>
-                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#ff4d4f' }}>2</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#ff4d4f' }}>{pendingCount}</div>
                 <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>Требуют проверки</div>
               </div>
             </div>
@@ -255,11 +214,11 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
 
           <div className="card">
             <h3 style={{ fontSize: '1.15rem', color: '#0a2540', marginBottom: '12px' }}>
-              📋 Рабочие виджеты наставника ГБОУ СОШ №214
+              📋 Рабочие виджеты наставника: {mentorOrg}
             </h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
               <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                <h4 style={{ margin: '0 0 6px 0', color: '#0a2540' }}>Быстрый переход к списку класса</h4>
+                <h4 style={{ margin: '0 0 6px 0', color: '#0a2540' }}>Список учеников и маршруты</h4>
                 <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '0 0 12px 0' }}>Просмотр сохраненных маршрутов и комментарии педагогического коллектива.</p>
                 <button className="btn btn-primary" onClick={() => onNavigateTab('roadmap')}>Перейти к списку учеников</button>
               </div>
@@ -274,16 +233,16 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
         </div>
       )}
 
-      {/* PAGE 2: TAB 'roadmap' (Группа 9 "Б" — Список учеников и маршруты) */}
+      {/* PAGE 2: TAB 'roadmap' (Список учеников и маршруты) */}
       {activeTab === 'roadmap' && (
         <div className="card animate-fade-in">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
             <div>
               <h3 style={{ fontSize: '1.2rem', color: '#0a2540', margin: 0 }}>
-                👥 Реестр учеников класса 9 "Б" и Корректировка ИИ-маршрутов
+                👥 Реестр учеников и Корректировка ИИ-маршрутов
               </h3>
               <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '2px 0 0 0' }}>
-                Вы можете переопределить ИИ-рекомендации для любого учащегося
+                Данные синхронизированы с базой данных платформы
               </p>
             </div>
 
@@ -325,42 +284,50 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
                 </tr>
               </thead>
               <tbody>
-                {filteredStudents.map((s) => (
-                  <tr key={s.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                    <td style={{ padding: '12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <img src={s.avatar} alt={s.name} style={{ width: '34px', height: '34px', borderRadius: '50%', objectFit: 'cover' }} />
-                        <div>
-                          <div style={{ fontWeight: 700, color: '#0a2540' }}>{s.name}</div>
-                          <span style={{ fontSize: '0.72rem', color: '#64748b' }}>{s.grade}</span>
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ padding: '12px', fontWeight: 600, color: '#0a2540' }}>{s.aiRecommendation}</td>
-                    <td style={{ padding: '12px' }}>
-                      <span style={{ fontWeight: 800, color: '#0066ff' }}>{s.matchPercent}%</span>
-                    </td>
-                    <td style={{ padding: '12px' }}>{s.assignedTrial}</td>
-                    <td style={{ padding: '12px', fontSize: '0.8rem', color: '#475569' }}>{s.mentorComment}</td>
-                    <td style={{ padding: '12px' }}>
-                      <span className={`badge ${s.status === 'verified' ? 'badge-success' : 'badge-gold'}`}>
-                        {s.status === 'verified' ? 'Подтвержден' : 'Проверка'}
-                      </span>
-                    </td>
-                    <td style={{ padding: '12px', textAlign: 'right' }}>
-                      <button
-                        className="btn btn-secondary"
-                        style={{ padding: '4px 10px', fontSize: '0.75rem' }}
-                        onClick={() => {
-                          setSelectedStudentForEdit(s);
-                          setMentorNote(s.mentorComment);
-                        }}
-                      >
-                        Корректировать
-                      </button>
+                {filteredStudents.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
+                      {loading ? 'Загрузка списка учеников...' : 'Ученики не найдены.'}
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredStudents.map((s) => (
+                    <tr key={s.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      <td style={{ padding: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <img src={s.avatar} alt={s.name} style={{ width: '34px', height: '34px', borderRadius: '50%', objectFit: 'cover' }} />
+                          <div>
+                            <div style={{ fontWeight: 700, color: '#0a2540' }}>{s.name}</div>
+                            <span style={{ fontSize: '0.72rem', color: '#64748b' }}>{s.school} • {s.grade}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ padding: '12px', fontWeight: 600, color: '#0a2540' }}>{s.aiRecommendation}</td>
+                      <td style={{ padding: '12px' }}>
+                        <span style={{ fontWeight: 800, color: '#0066ff' }}>{s.matchPercent}%</span>
+                      </td>
+                      <td style={{ padding: '12px' }}>{s.assignedTrial}</td>
+                      <td style={{ padding: '12px', fontSize: '0.8rem', color: '#475569' }}>{s.mentorComment}</td>
+                      <td style={{ padding: '12px' }}>
+                        <span className={`badge ${s.status === 'verified' ? 'badge-success' : 'badge-gold'}`}>
+                          {s.status === 'verified' ? 'Подтвержден' : 'Проверка'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'right' }}>
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+                          onClick={() => {
+                            setSelectedStudentForEdit(s);
+                            setMentorNote(s.mentorComment);
+                          }}
+                        >
+                          Корректировать
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -376,11 +343,11 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
                 📍 Назначение групповых выездов на профпробы АИТУ
               </h3>
               <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '2px 0 0 0' }}>
-                Формирование групповых заявок от ГБОУ СОШ №214
+                Формирование групповых заявок от {mentorOrg}
               </p>
             </div>
             <button className="btn btn-primary" onClick={handleBulkBooking}>
-              <IconPlus size={16} /> Назначить пробу для всего класса
+              <IconPlus size={16} /> Назначить пробу для всей группы
             </button>
           </div>
 
@@ -390,10 +357,10 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
               <h4 style={{ margin: '0 0 6px 0', color: '#0a2540' }}>«Разработка веб-приложений React»</h4>
               <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '0 0 10px 0' }}>АИТУ СПб, ул. Профсоюзная 14, лаб. 302</p>
               <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0066ff', marginBottom: '12px' }}>
-                Зачислено учеников 9 "Б": 12 из 28
+                Зачислено учеников: {students.filter((s) => s.assignedTrial && s.assignedTrial.includes('React')).length} из {totalStudents}
               </div>
               <button className="btn btn-secondary" style={{ width: '100%', fontSize: '0.8rem' }} onClick={handleBulkBooking}>
-                Записать оставшихся 16 учеников
+                Записать оставшихся учеников
               </button>
             </div>
 
@@ -402,7 +369,7 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
               <h4 style={{ margin: '0 0 6px 0', color: '#0a2540' }}>«3D-моделирование и печать деталей»</h4>
               <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '0 0 10px 0' }}>Инженерный корпус АИТУ (м. Кировский завод)</p>
               <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#10b981', marginBottom: '12px' }}>
-                Зачислено учеников 9 "Б": 16 из 28
+                Зачислено учеников: {students.filter((s) => s.assignedTrial && s.assignedTrial.includes('3D')).length} из {totalStudents}
               </div>
               <button className="btn btn-secondary" style={{ width: '100%', fontSize: '0.8rem' }} onClick={handleBulkBooking}>
                 Управление списком группы
@@ -416,13 +383,13 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
       {activeTab === 'assistant' && (
         <div className="card animate-fade-in">
           <h3 style={{ fontSize: '1.2rem', color: '#0a2540', marginBottom: '14px' }}>
-            🤖 ИИ-Аналитика вовлеченности группы 9 "Б"
+            🤖 ИИ-Аналитика вовлеченности группы ({totalStudents} учеников)
           </h3>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '20px' }}>
             <div style={{ padding: '18px', borderRadius: '14px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
               <h4 style={{ margin: '0 0 10px 0', color: '#0a2540', fontSize: '0.95rem' }}>
-                Распределение интересов класса по кластерам:
+                Распределение интересов по кластерам:
               </h4>
               <div style={{ display: 'flex', gap: '6px', height: '10px', borderRadius: '5px', overflow: 'hidden', marginBottom: '10px' }}>
                 <div style={{ width: '42%', backgroundColor: '#0066ff' }} />
@@ -431,16 +398,16 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
                 <div style={{ width: '12%', backgroundColor: '#8b5cf6' }} />
               </div>
               <div style={{ fontSize: '0.82rem', color: '#475569', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span>• IT и Программирование — 42% (12 чел.)</span>
-                <span>• Инженерия и Робототехника — 28% (8 чел.)</span>
-                <span>• UX/UI Дизайн — 18% (5 чел.)</span>
-                <span>• Биомедицина — 12% (3 чел.)</span>
+                <span>• IT и Программирование — 42%</span>
+                <span>• Инженерия и Робототехника — 28%</span>
+                <span>• UX/UI Дизайн — 18%</span>
+                <span>• Биомедицина — 12%</span>
               </div>
             </div>
 
             <div style={{ padding: '18px', borderRadius: '14px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
               <h4 style={{ margin: '0 0 10px 0', color: '#0a2540', fontSize: '0.95rem' }}>
-                Сводный отчёт Soft-skills класса:
+                Сводный отчёт Soft-skills группы:
               </h4>
               <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.83rem', color: '#334155' }}>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -465,10 +432,10 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
       {activeTab === 'diagnostics' && (
         <div className="card animate-fade-in">
           <h3 style={{ fontSize: '1.2rem', color: '#0a2540', marginBottom: '14px' }}>
-            📊 Результаты тестирования Холланда/Климова всего класса
+            📊 Результаты тестирования Холланда/Климова ({totalStudents} учеников)
           </h3>
           <p style={{ fontSize: '0.88rem', color: '#475569', lineHeight: 1.5, marginBottom: '16px' }}>
-            Все 28 участников класса 9 "Б" прошли комплексную диагностику склонностей. Результаты зафиксированы в цифровых профилях Санкт-Петербурга.
+            Все результаты зафиксированы в цифровых профилях базы данных Санкт-Петербурга.
           </p>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
@@ -478,7 +445,7 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
                   <img src={s.avatar} alt={s.name} style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }} />
                   <div>
                     <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#0a2540' }}>{s.name}</div>
-                    <span style={{ fontSize: '0.72rem', color: '#64748b' }}>{s.grade}</span>
+                    <span style={{ fontSize: '0.72rem', color: '#64748b' }}>{s.school} • {s.grade}</span>
                   </div>
                 </div>
                 <div style={{ fontSize: '0.82rem', color: '#0066ff', fontWeight: 700, marginBottom: '4px' }}>
@@ -495,3 +462,5 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
     </div>
   );
 };
+
+export default MentorView;

@@ -1,16 +1,36 @@
-import React from 'react';
-import { MOCK_STUDENT_PROFILE } from '../../mock/data';
+import React, { useState, useEffect } from 'react';
+import { api } from '../../services/api';
 import { 
   IconSparkles, 
   IconMapPin, 
   IconBrain, 
-  IconCalendar, 
-  IconCheck, 
   IconArrowRight 
 } from '../common/Icons';
 
 export const RoleDashboards = ({ activeRole, onNavigateTab }) => {
-  const profile = MOCK_STUDENT_PROFILE;
+  const [profile, setProfile] = useState(null);
+
+  useEffect(() => {
+    api.getStudentProfile()
+      .then((data) => {
+        if (data) setProfile(data);
+      })
+      .catch((err) => console.warn('Could not load student stats for dashboard:', err.message));
+  }, [activeRole]);
+
+  const topRec = profile?.hasTakenDiagnostic
+    ? `${profile.topRecommendation} (${profile.topMatch || 90}%)`
+    : 'Тест еще не пройден';
+
+  const upcomingTrialTitle = profile?.upcomingTrials?.[0]?.title || 'Пока нет записей на пробы';
+  const currentScenario = profile?.currentScenario || 'A';
+  const progressPct = profile?.progressPercent ?? 0;
+
+  const scenarioName = currentScenario === 'B' 
+    ? 'Сценарий Б («Углубление в IT/Инженерию»)' 
+    : currentScenario === 'C' 
+    ? 'Сценарий В («Трудоустройство»)' 
+    : 'Сценарий А («Самоопределение»)';
 
   return (
     <div style={styles.container} className="animate-fade-in">
@@ -32,12 +52,12 @@ export const RoleDashboards = ({ activeRole, onNavigateTab }) => {
           <div style={styles.highlightBox}>
             <div style={{ fontSize: '0.78rem', color: '#64748b' }}>Главное направление:</div>
             <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0066ff' }}>
-              {profile.topRecommendation} (94%)
+              {topRec}
             </div>
           </div>
 
           <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => onNavigateTab('diagnostics')}>
-            Перейти к тестам <IconArrowRight size={15} />
+            {profile?.hasTakenDiagnostic ? 'Смотреть результаты' : 'Пройти тест'} <IconArrowRight size={15} />
           </button>
         </div>
 
@@ -56,9 +76,9 @@ export const RoleDashboards = ({ activeRole, onNavigateTab }) => {
           </p>
 
           <div style={styles.highlightBox}>
-            <div style={{ fontSize: '0.78rem', color: '#64748b' }}>Забронированные выезды:</div>
+            <div style={{ fontSize: '0.78rem', color: '#64748b' }}>Ближайшая запись:</div>
             <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0a2540' }}>
-              {profile.upcomingTrials[0]?.title || 'React Web Dev'}
+              {upcomingTrialTitle}
             </div>
           </div>
 
@@ -73,7 +93,7 @@ export const RoleDashboards = ({ activeRole, onNavigateTab }) => {
             <div style={styles.iconCircleGreen}>
               <IconSparkles size={22} color="#10b981" />
             </div>
-            <span className="badge badge-success">Сценарий Б</span>
+            <span className="badge badge-success">Прогресс: {progressPct}%</span>
           </div>
 
           <h3 style={styles.cardTitle}>Персональный Маршрут</h3>
@@ -82,9 +102,9 @@ export const RoleDashboards = ({ activeRole, onNavigateTab }) => {
           </p>
 
           <div style={styles.highlightBox}>
-            <div style={{ fontSize: '0.78rem', color: '#64748b' }}>Текущий этап:</div>
+            <div style={{ fontSize: '0.78rem', color: '#64748b' }}>Текущий трек:</div>
             <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#10b981' }}>
-              Профпробы в АИТУ (В процессе)
+              {scenarioName}
             </div>
           </div>
 
@@ -161,3 +181,5 @@ const styles = {
     marginTop: 'auto'
   }
 };
+
+export default RoleDashboards;

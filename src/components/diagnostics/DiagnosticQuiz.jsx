@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { DIAGNOSTIC_QUESTIONS, MOCK_DIAGNOSTIC_RESULTS } from '../../mock/data';
 import { api } from '../../services/api';
 import { 
   IconBrain, 
@@ -12,49 +11,64 @@ import {
 } from '../common/Icons';
 
 export const DiagnosticQuiz = ({ onNavigateTab }) => {
-  const [questions, setQuestions] = useState(DIAGNOSTIC_QUESTIONS);
+  const [questions, setQuestions] = useState([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedOption, setSelectedOption] = useState(null);
   const [isCompleted, setIsCompleted] = useState(false);
   const [answers, setAnswers] = useState([]);
-  const [resultsData, setResultsData] = useState(MOCK_DIAGNOSTIC_RESULTS);
+  const [resultsData, setResultsData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [fetchingQuestions, setFetchingQuestions] = useState(true);
 
   useEffect(() => {
+    setFetchingQuestions(true);
+    // Load diagnostic questions from PostgreSQL DB
     api.getDiagnosticQuestions()
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
           setQuestions(data);
         }
       })
-      .catch((err) => console.warn('Using local diagnostic questions fallback', err));
+      .catch((err) => console.warn('Could not load questions from API:', err.message))
+      .finally(() => setFetchingQuestions(false));
   }, []);
 
-  const currentQ = questions[currentStep] || questions[0];
+  const currentQ = questions[currentStep] || null;
 
   const handleSelectOption = (idx) => {
     setSelectedOption(idx);
   };
 
   const handleNext = async () => {
-    if (selectedOption === null) return;
-    const selectedOptObj = currentQ.options[selectedOption];
-    const newAnswers = [...answers, { questionId: currentQ.id, selectedOptionIndex: selectedOption, scores: selectedOptObj?.scores }];
+    if (selectedOption === null || !currentQ) return;
+    const selectedOptObj = currentQ?.options?.[selectedOption];
+    const newAnswers = [
+      ...answers, 
+      { 
+        questionId: currentQ.id, 
+        selectedOptionIndex: selectedOption, 
+        scores: selectedOptObj?.scores 
+      }
+    ];
     setAnswers(newAnswers);
 
     if (currentStep + 1 < questions.length) {
       setCurrentStep(currentStep + 1);
       setSelectedOption(null);
     } else {
-      // Завершение тестирования и отправка в БД через Prisma
+      // Завершение тестирования и сохранение в БД через Prisma
+      setLoading(true);
       try {
         const res = await api.submitDiagnosticQuiz(newAnswers);
         if (res && res.topDirections) {
           setResultsData(res);
         }
       } catch (err) {
-        console.warn('Using mock diagnostic results fallback', err);
+        console.warn('Could not submit quiz to DB:', err.message);
+      } finally {
+        setLoading(false);
+        setIsCompleted(true);
       }
-      setIsCompleted(true);
     }
   };
 
@@ -63,9 +77,30 @@ export const DiagnosticQuiz = ({ onNavigateTab }) => {
     setSelectedOption(null);
     setIsCompleted(false);
     setAnswers([]);
+    setResultsData(null);
   };
 
-  if (isCompleted) {
+  if (fetchingQuestions) {
+    return (
+      <div className="card animate-fade-in" style={{ maxWidth: '850px', margin: '0 auto', textAlign: 'center', padding: '60px 20px' }}>
+        <div style={{ width: '48px', height: '48px', borderRadius: '50%', border: '4px solid #f1f5f9', borderTopColor: '#0066ff', margin: '0 auto 16px auto', animation: 'spin 1s linear infinite' }} />
+        <h3 style={{ color: '#0a2540', marginBottom: '8px' }}>Загрузка вопросов диагностики из базы данных...</h3>
+        <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Подгружаем актуальные вопросы RIASEC и Soft-Skills</p>
+      </div>
+    );
+  }
+
+  if (questions.length === 0) {
+    return (
+      <div className="card animate-fade-in" style={{ maxWidth: '850px', margin: '0 auto', textAlign: 'center', padding: '40px 20px' }}>
+        <IconBrain size={48} color="#64748b" style={{ marginBottom: '16px' }} />
+        <h3 style={{ color: '#0a2540', marginBottom: '8px' }}>Вопросы временно недоступны</h3>
+        <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Не удалось получить список вопросов из базы данных.</p>
+      </div>
+    );
+  }
+
+  if (isCompleted && resultsData) {
     return <DiagnosticResults results={resultsData} onNavigateTab={onNavigateTab} onRestart={handleRestart} />;
   }
 
@@ -86,7 +121,7 @@ export const DiagnosticQuiz = ({ onNavigateTab }) => {
             </div>
           </div>
           <span className="badge badge-primary">
-            Вопрос {currentStep + 1} из {DIAGNOSTIC_QUESTIONS.length}
+            Вопрос {currentStep + 1} из {questions.length}
           </span>
         </div>
 
@@ -95,7 +130,7 @@ export const DiagnosticQuiz = ({ onNavigateTab }) => {
           <div 
             style={{ 
               ...styles.fill, 
-              width: `${((currentStep + 1) / DIAGNOSTIC_QUESTIONS.length) * 100}%` 
+              width: `${((currentStep + 1) / questions.length) * 100}%` 
             }} 
           />
         </div>
@@ -103,11 +138,11 @@ export const DiagnosticQuiz = ({ onNavigateTab }) => {
 
       {/* Question Card */}
       <div className="card" style={{ padding: '32px' }}>
-        <span style={styles.categoryBadge}>{currentQ.category}</span>
-        <h2 style={styles.questionTitle}>{currentQ.question}</h2>
+        <span style={styles.categoryBadge}>{currentQ?.category || 'Интересы'}</span>
+        <h2 style={styles.questionTitle}>{currentQ?.question}</h2>
 
         <div style={styles.optionsList}>
-          {currentQ.options.map((opt, idx) => {
+          {currentQ?.options?.map((opt, idx) => {
             const isSelected = selectedOption === idx;
             return (
               <button
@@ -142,10 +177,10 @@ export const DiagnosticQuiz = ({ onNavigateTab }) => {
           <button
             className="btn btn-primary"
             onClick={handleNext}
-            disabled={selectedOption === null}
-            style={{ opacity: selectedOption === null ? 0.6 : 1 }}
+            disabled={selectedOption === null || loading}
+            style={{ opacity: (selectedOption === null || loading) ? 0.6 : 1 }}
           >
-            {currentStep + 1 === DIAGNOSTIC_QUESTIONS.length ? 'Завершить и расчитать ИИ' : 'Следующий вопрос'}
+            {loading ? 'Обработка ИИ...' : currentStep + 1 === questions.length ? 'Завершить и сохранить в БД' : 'Следующий вопрос'}
             <IconArrowRight size={16} />
           </button>
         </div>
@@ -166,7 +201,7 @@ export const DiagnosticResults = ({ results, onNavigateTab, onRestart }) => {
               Результаты ИИ-Анализа Диагностики
             </h2>
             <p style={{ color: '#93c5fd', margin: 0, fontSize: '0.85rem' }}>
-              Дата прохождения: {results.date} • Сохранено в цифровой профиль участников СПб
+              Дата прохождения: {results.date || 'Сегодня'} • Сохранено в базу данных Вашего профиля
             </p>
           </div>
         </div>
@@ -177,11 +212,11 @@ export const DiagnosticResults = ({ results, onNavigateTab, onRestart }) => {
 
       {/* TOP Matches */}
       <h3 style={{ fontSize: '1.2rem', color: '#0a2540', margin: '24px 0 14px 0' }}>
-        🏆 ТОП-3 Рекомендуемых Направлений (Процент Совпадения)
+        🏆 ТОП Рекомендуемых Направлений (Процент Совпадения)
       </h3>
 
       <div style={styles.topGrid}>
-        {results.topDirections.map((item, idx) => (
+        {results.topDirections?.map((item, idx) => (
           <div key={idx} className="card card-hoverable" style={styles.topCard}>
             <div style={styles.matchBadgeRow}>
               <span className="badge badge-navy">#{idx + 1} Направление</span>
@@ -208,7 +243,7 @@ export const DiagnosticResults = ({ results, onNavigateTab, onRestart }) => {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            {results.scoresDistribution.map((bar, idx) => (
+            {results.scoresDistribution?.map((bar, idx) => (
               <div key={idx}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '4px' }}>
                   <span style={{ fontWeight: 600, color: '#334155' }}>{bar.label}</span>
@@ -232,7 +267,7 @@ export const DiagnosticResults = ({ results, onNavigateTab, onRestart }) => {
           </div>
 
           <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {results.strengths.map((str, idx) => (
+            {results.strengths?.map((str, idx) => (
               <li key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '0.88rem', color: '#334155' }}>
                 <IconCheck size={18} color="#10b981" style={{ flexShrink: 0, marginTop: '2px' }} />
                 <span>{str}</span>
@@ -386,3 +421,5 @@ const styles = {
     marginTop: '24px'
   }
 };
+
+export default DiagnosticQuiz;

@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { IconUser, IconLock, IconArrowRight, IconShield, IconCareer } from '../common/Icons';
+import { api } from '../../services/api';
 
 export const Login = ({ onLogin, onGoToRegister }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState('participant');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
 
@@ -16,9 +17,32 @@ export const Login = ({ onLogin, onGoToRegister }) => {
       return;
     }
 
-    if (onLogin) {
-      onLogin({ email: email.trim(), role });
+    setLoading(true);
+    try {
+      const res = await api.login({
+        email: email.trim(),
+        password: password.trim()
+      });
+
+      if (res && res.token && res.user) {
+        api.setSession(res.token, res.user);
+        if (onLogin) {
+          onLogin(res.user);
+        }
+      } else {
+        throw new Error('Некорректный ответ сервера.');
+      }
+    } catch (err) {
+      setError(err.message || 'Не удалось выполнить вход. Проверьте данные.');
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const handleFillDemo = (demoEmail) => {
+    setEmail(demoEmail);
+    setPassword('password123');
+    setError('');
   };
 
   return (
@@ -50,6 +74,8 @@ export const Login = ({ onLogin, onGoToRegister }) => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 style={styles.input}
+                disabled={loading}
+                required
               />
             </div>
           </div>
@@ -64,27 +90,15 @@ export const Login = ({ onLogin, onGoToRegister }) => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 style={styles.input}
+                disabled={loading}
+                required
               />
             </div>
           </div>
 
-          <div style={styles.field}>
-            <label style={styles.label}>Роль</label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              style={styles.select}
-            >
-              <option value="participant">Участник (школьник)</option>
-              <option value="parent">Родитель</option>
-              <option value="mentor">Наставник</option>
-              <option value="admin">Администратор</option>
-            </select>
-          </div>
-
           <div style={styles.optionsRow}>
             <label style={styles.checkboxLabel}>
-              <input type="checkbox" style={styles.checkbox} />
+              <input type="checkbox" defaultChecked style={styles.checkbox} />
               <span>Запомнить меня</span>
             </label>
             <button type="button" style={styles.forgotButton}>Забыли пароль?</button>
@@ -97,11 +111,53 @@ export const Login = ({ onLogin, onGoToRegister }) => {
             </div>
           )}
 
-          <button type="submit" style={styles.submitButton}>
-            <span>Войти</span>
-            <IconArrowRight size={18} color="#ffffff" />
+          <button 
+            type="submit" 
+            style={{ 
+              ...styles.submitButton, 
+              opacity: loading ? 0.7 : 1, 
+              cursor: loading ? 'wait' : 'pointer' 
+            }}
+            disabled={loading}
+          >
+            <span>{loading ? 'Выполняется вход...' : 'Войти'}</span>
+            {!loading && <IconArrowRight size={18} color="#ffffff" />}
           </button>
         </form>
+
+        <div style={styles.demoBlock}>
+          <div style={styles.demoTitle}>Быстрый демо-вход:</div>
+          <div style={styles.demoButtons}>
+            <button 
+              type="button" 
+              onClick={() => handleFillDemo('alex.smirnov@spb-school214.ru')}
+              style={styles.demoBtn}
+            >
+              🎓 Школьник
+            </button>
+            <button 
+              type="button" 
+              onClick={() => handleFillDemo('volkova.elena@aitu.spb.ru')}
+              style={styles.demoBtn}
+            >
+              👩‍🏫 Наставник
+            </button>
+            <button 
+              type="button" 
+              onClick={() => handleFillDemo('mikhail.smirnov@mail.ru')}
+              style={styles.demoBtn}
+            >
+              👨‍👩‍👦 Родитель
+            </button>
+            <button 
+              type="button" 
+              onClick={() => handleFillDemo('sokolov.id@gazprom-neft.spb.ru')}
+              style={styles.demoBtn}
+            >
+              🏢 Партнер
+            </button>
+          </div>
+        </div>
 
         <div style={styles.registerBlock}>
           <span>Ещё нет аккаунта?</span>
@@ -115,9 +171,9 @@ export const Login = ({ onLogin, onGoToRegister }) => {
             <IconShield size={18} color="#6ee7b7" />
           </div>
           <div>
-            <div style={styles.infoTitle}>Безопасный вход</div>
+            <div style={styles.infoTitle}>Безопасный вход ЕСИА / БД</div>
             <div style={styles.infoText}>
-              В рабочей версии авторизация будет интегрирована с порталом «Работа в России» и Госуслугами.
+              Пароли надежно защищены криптографическим хешированием bcrypt. Авторизация синхронизирована с базой данных Карьерного Навигатора СПб.
             </div>
           </div>
         </div>
@@ -283,6 +339,37 @@ const styles = {
     marginBottom: '15px',
     color: '#9a3412',
     fontSize: '0.78rem'
+  },
+  demoBlock: {
+    marginTop: '18px',
+    padding: '12px',
+    backgroundColor: '#f1f5f9',
+    borderRadius: '12px',
+    border: '1px dashed #cbd5e1'
+  },
+  demoTitle: {
+    fontSize: '0.75rem',
+    fontWeight: 700,
+    color: '#475569',
+    marginBottom: '8px',
+    textAlign: 'center'
+  },
+  demoButtons: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '6px',
+    justifyContent: 'center'
+  },
+  demoBtn: {
+    padding: '5px 10px',
+    fontSize: '0.72rem',
+    fontWeight: 600,
+    backgroundColor: '#ffffff',
+    border: '1px solid #cbd5e1',
+    borderRadius: '8px',
+    color: '#1e293b',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
   },
   registerBlock: {
     display: 'flex',

@@ -1,18 +1,37 @@
 import React, { useState } from 'react';
+import { api } from '../../services/api';
 import { IconClose, IconCheck, IconUser } from '../common/Icons';
 
-export const MentorControlsModal = ({ isOpen, onClose }) => {
+export const MentorControlsModal = ({ isOpen, onClose, studentId }) => {
   const [comment, setComment] = useState('');
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => {
-      setSaved(false);
-      onClose();
-    }, 1500);
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      let targetId = studentId;
+      if (!targetId) {
+        const students = await api.getMentorStudents().catch(() => []);
+        if (students && students.length > 0) {
+          targetId = students[0].id;
+        }
+      }
+      if (targetId && comment.trim()) {
+        await api.addMentorNote(targetId, comment.trim());
+      }
+      setSaved(true);
+      setTimeout(() => {
+        setSaved(false);
+        onClose();
+      }, 1500);
+    } catch (err) {
+      alert('Ошибка при сохранении: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

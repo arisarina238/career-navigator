@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { CAREER_ROADMAP_STAGES } from '../../mock/data';
 import { api } from '../../services/api';
 import { MentorControlsModal } from './MentorControlsModal';
 import { 
@@ -10,19 +9,41 @@ import {
 } from '../common/Icons';
 
 export const CareerRoadmap = ({ activeRole }) => {
-  const [stages, setStages] = useState(CAREER_ROADMAP_STAGES);
-  const [activeScenario, setActiveScenario] = useState('B'); // A, B, C
+  const [stages, setStages] = useState([]);
+  const [activeScenario, setActiveScenario] = useState('A');
   const [showMentorModal, setShowMentorModal] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    api.getCareerRoadmap()
-      .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
-          setStages(data);
+  const loadRoadmap = () => {
+    setLoading(true);
+    Promise.all([
+      api.getCareerRoadmap().catch(() => []),
+      api.getStudentProfile().catch(() => null)
+    ])
+      .then(([stagesData, studentProfile]) => {
+        if (Array.isArray(stagesData)) setStages(stagesData);
+        if (studentProfile && studentProfile.currentScenario) {
+          setActiveScenario(studentProfile.currentScenario);
         }
       })
-      .catch((err) => console.warn('Using local roadmap stages fallback', err));
-  }, []);
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadRoadmap();
+  }, [activeRole]);
+
+  const handleSelectScenario = async (scen) => {
+    setActiveScenario(scen);
+    try {
+      await api.updateStudentProfile({ currentScenario: scen });
+    } catch (err) {
+      console.warn('Could not update scenario in DB:', err.message);
+    }
+  };
+
+  const completedCount = stages.filter((s) => s.status === 'completed').length;
+  const totalStages = stages.length || 4;
 
   return (
     <div style={styles.container} className="animate-fade-in">
@@ -43,7 +64,7 @@ export const CareerRoadmap = ({ activeRole }) => {
             </p>
           </div>
 
-          {activeRole.id === 'mentor' && (
+          {activeRole?.id === 'mentor' && (
             <button className="btn btn-navy" onClick={() => setShowMentorModal(true)}>
               <IconUser size={16} /> Корректировка Наставника
             </button>
@@ -59,7 +80,7 @@ export const CareerRoadmap = ({ activeRole }) => {
 
           <div style={styles.scenarioBtns}>
             <button
-              onClick={() => setActiveScenario('A')}
+              onClick={() => handleSelectScenario('A')}
               style={{
                 ...styles.scenBtn,
                 ...(activeScenario === 'A' ? styles.scenActive : {})
@@ -69,7 +90,7 @@ export const CareerRoadmap = ({ activeRole }) => {
             </button>
 
             <button
-              onClick={() => setActiveScenario('B')}
+              onClick={() => handleSelectScenario('B')}
               style={{
                 ...styles.scenBtn,
                 ...(activeScenario === 'B' ? styles.scenActive : {})
@@ -79,7 +100,7 @@ export const CareerRoadmap = ({ activeRole }) => {
             </button>
 
             <button
-              onClick={() => setActiveScenario('C')}
+              onClick={() => handleSelectScenario('C')}
               style={{
                 ...styles.scenBtn,
                 ...(activeScenario === 'C' ? styles.scenActive : {})
@@ -94,67 +115,73 @@ export const CareerRoadmap = ({ activeRole }) => {
       {/* Linear Track Roadmap Timeline */}
       <div className="card" style={{ padding: '32px 24px' }}>
         <div style={styles.trackTitleRow}>
-          <span className="badge badge-success">Прогресс: 2 из 4 этапов пройдены</span>
-          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Авто-обновление из Цифрового профиля</span>
+          <span className="badge badge-success">Прогресс: {completedCount} из {totalStages} этапов пройдены</span>
+          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Авто-обновление из базы данных профиля</span>
         </div>
 
-        <div style={styles.timelineWrapper}>
-          {stages.map((stage, idx) => {
-            const isDone = stage.status === 'completed';
-            const isInProgress = stage.status === 'in_progress';
-            return (
-              <div key={stage.id} style={styles.timelineItem}>
-                {/* Connector Line */}
-                {idx < stages.length - 1 && (
+        {loading && stages.length === 0 ? (
+          <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
+            Загрузка персонального маршрута...
+          </div>
+        ) : (
+          <div style={styles.timelineWrapper}>
+            {stages.map((stage, idx) => {
+              const isDone = stage.status === 'completed';
+              const isInProgress = stage.status === 'in_progress';
+              return (
+                <div key={stage.id || idx} style={styles.timelineItem}>
+                  {/* Connector Line */}
+                  {idx < stages.length - 1 && (
+                    <div
+                      style={{
+                        ...styles.connectorLine,
+                        backgroundColor: isDone ? '#10b981' : '#e2e8f0'
+                      }}
+                    />
+                  )}
+
+                  {/* Status Dot */}
                   <div
                     style={{
-                      ...styles.connectorLine,
-                      backgroundColor: isDone ? '#10b981' : '#e2e8f0'
+                      ...styles.dotCircle,
+                      ...(isDone ? styles.dotDone : isInProgress ? styles.dotCurrent : styles.dotUpcoming)
                     }}
-                  />
-                )}
-
-                {/* Status Dot */}
-                <div
-                  style={{
-                    ...styles.dotCircle,
-                    ...(isDone ? styles.dotDone : isInProgress ? styles.dotCurrent : styles.dotUpcoming)
-                  }}
-                >
-                  {isDone ? (
-                    <IconCheck size={20} color="#ffffff" />
-                  ) : (
-                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: isInProgress ? '#0066ff' : '#94a3b8' }}>
-                      {idx + 1}
-                    </span>
-                  )}
-                </div>
-
-                {/* Stage Card */}
-                <div
-                  style={{
-                    ...styles.stageCard,
-                    ...(isInProgress ? styles.stageCardCurrent : {})
-                  }}
-                >
-                  <div style={styles.stageHeader}>
-                    <h4 style={styles.stageTitle}>{stage.title}</h4>
-                    <span
-                      className={`badge ${
-                        isDone ? 'badge-success' : isInProgress ? 'badge-primary' : 'badge-navy'
-                      }`}
-                    >
-                      {stage.badge}
-                    </span>
+                  >
+                    {isDone ? (
+                      <IconCheck size={20} color="#ffffff" />
+                    ) : (
+                      <span style={{ fontSize: '0.8rem', fontWeight: 700, color: isInProgress ? '#0066ff' : '#94a3b8' }}>
+                        {idx + 1}
+                      </span>
+                    )}
                   </div>
 
-                  <div style={styles.stageSubtitle}>{stage.subtitle}</div>
-                  <p style={styles.stageDesc}>{stage.description}</p>
+                  {/* Stage Card */}
+                  <div
+                    style={{
+                      ...styles.stageCard,
+                      ...(isInProgress ? styles.stageCardCurrent : {})
+                    }}
+                  >
+                    <div style={styles.stageHeader}>
+                      <h4 style={styles.stageTitle}>{stage.title}</h4>
+                      <span
+                        className={`badge ${
+                          isDone ? 'badge-success' : isInProgress ? 'badge-primary' : 'badge-navy'
+                        }`}
+                      >
+                        {stage.badge || (isDone ? 'Пройдено' : isInProgress ? 'Текущий этап' : 'Предстоит')}
+                      </span>
+                    </div>
+
+                    <div style={styles.stageSubtitle}>{stage.subtitle}</div>
+                    <p style={styles.stageDesc}>{stage.description}</p>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -283,3 +310,5 @@ const styles = {
     margin: 0
   }
 };
+
+export default CareerRoadmap;

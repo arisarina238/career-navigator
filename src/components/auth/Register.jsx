@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { IconUser, IconLock, IconArrowRight, IconShield, IconCareer } from '../common/Icons';
+import { api } from '../../services/api';
 
 export const Register = ({ onRegister, onGoToLogin }) => {
   const [form, setForm] = useState({
@@ -12,12 +13,13 @@ export const Register = ({ onRegister, onGoToLogin }) => {
     agree: false
   });
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
 
@@ -42,8 +44,28 @@ export const Register = ({ onRegister, onGoToLogin }) => {
       return;
     }
 
-    if (onRegister) {
-      onRegister(form);
+    setLoading(true);
+    try {
+      const res = await api.register({
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        email: form.email.trim(),
+        password: form.password,
+        role: form.role
+      });
+
+      if (res && res.token && res.user) {
+        api.setSession(res.token, res.user);
+        if (onRegister) {
+          onRegister(res.user);
+        }
+      } else {
+        throw new Error('Некорректный ответ сервера при создании аккаунта.');
+      }
+    } catch (err) {
+      setError(err.message || 'Ошибка при регистрации. Проверьте данные.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -76,6 +98,8 @@ export const Register = ({ onRegister, onGoToLogin }) => {
                 value={form.firstName}
                 onChange={(e) => handleChange('firstName', e.target.value)}
                 style={styles.input}
+                disabled={loading}
+                required
               />
             </div>
           </div>
@@ -90,6 +114,8 @@ export const Register = ({ onRegister, onGoToLogin }) => {
                 value={form.lastName}
                 onChange={(e) => handleChange('lastName', e.target.value)}
                 style={styles.input}
+                disabled={loading}
+                required
               />
             </div>
           </div>
@@ -104,6 +130,8 @@ export const Register = ({ onRegister, onGoToLogin }) => {
                 value={form.email}
                 onChange={(e) => handleChange('email', e.target.value)}
                 style={styles.input}
+                disabled={loading}
+                required
               />
             </div>
           </div>
@@ -114,10 +142,12 @@ export const Register = ({ onRegister, onGoToLogin }) => {
               value={form.role}
               onChange={(e) => handleChange('role', e.target.value)}
               style={styles.select}
+              disabled={loading}
             >
               <option value="participant">Участник (школьник)</option>
               <option value="parent">Родитель (законный представитель)</option>
-              <option value="mentor">Наставник</option>
+              <option value="mentor">Наставник / Куратор</option>
+              <option value="employer">Работодатель / Представитель компании</option>
             </select>
           </div>
 
@@ -131,6 +161,8 @@ export const Register = ({ onRegister, onGoToLogin }) => {
                 value={form.password}
                 onChange={(e) => handleChange('password', e.target.value)}
                 style={styles.input}
+                disabled={loading}
+                required
               />
             </div>
           </div>
@@ -145,6 +177,8 @@ export const Register = ({ onRegister, onGoToLogin }) => {
                 value={form.confirmPassword}
                 onChange={(e) => handleChange('confirmPassword', e.target.value)}
                 style={styles.input}
+                disabled={loading}
+                required
               />
             </div>
           </div>
@@ -155,6 +189,7 @@ export const Register = ({ onRegister, onGoToLogin }) => {
               checked={form.agree}
               onChange={(e) => handleChange('agree', e.target.checked)}
               style={styles.checkbox}
+              disabled={loading}
             />
             <span>Я согласен с условиями использования сервиса и обработкой персональных данных</span>
           </label>
@@ -166,9 +201,17 @@ export const Register = ({ onRegister, onGoToLogin }) => {
             </div>
           )}
 
-          <button type="submit" style={styles.submitButton}>
-            <span>Создать аккаунт</span>
-            <IconArrowRight size={18} color="#ffffff" />
+          <button 
+            type="submit" 
+            style={{
+              ...styles.submitButton,
+              opacity: loading ? 0.7 : 1,
+              cursor: loading ? 'wait' : 'pointer'
+            }}
+            disabled={loading}
+          >
+            <span>{loading ? 'Создание учетной записи...' : 'Создать аккаунт'}</span>
+            {!loading && <IconArrowRight size={18} color="#ffffff" />}
           </button>
         </form>
 
