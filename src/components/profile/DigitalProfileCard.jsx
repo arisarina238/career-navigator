@@ -7,7 +7,8 @@ import {
   IconSparkles, 
   IconCalendar,
   IconEdit,
-  IconClose
+  IconClose,
+  IconArrowRight
 } from '../common/Icons';
 
 export const DigitalProfileCard = ({ currentRole }) => {
@@ -22,6 +23,7 @@ export const DigitalProfileCard = ({ currentRole }) => {
     phone: ''
   });
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [bookingsCollapsed, setBookingsCollapsed] = useState(false);
 
   const fetchProfile = () => {
     setLoading(true);
@@ -211,6 +213,96 @@ export const DigitalProfileCard = ({ currentRole }) => {
           </div>
         </div>
       </div>
+
+      {/* ==== Блок записей на профпробы ==== */}
+      {profile?.upcomingTrials && profile.upcomingTrials.length > 0 && (
+        <div style={styles.bookingsSection}>
+          <button
+            onClick={() => setBookingsCollapsed((v) => !v)}
+            style={styles.bookingsSectionHeader}
+          >
+            <IconCalendar size={16} color="#0066ff" />
+            <span>Мои записи на профессиональные пробы</span>
+            <span style={styles.bookingsCount}>{profile.upcomingTrials.length}</span>
+            <span style={{
+              marginLeft: '4px',
+              transition: 'transform 0.25s ease',
+              transform: bookingsCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+              display: 'inline-flex'
+            }}>
+              ▾
+            </span>
+          </button>
+
+          {!bookingsCollapsed && (
+            <div style={styles.bookingsList}>
+              {profile.upcomingTrials.map((b) => {
+                const statusInfo = {
+                  REGISTERED: { label: 'Зарегистрирован', color: '#0066ff', bg: '#eff6ff' },
+                  CONFIRMED: { label: 'Подтверждено', color: '#10b981', bg: '#ecfdf5' },
+                  ATTENDED: { label: 'Пройдено', color: '#7c3aed', bg: '#f5f3ff' },
+                  PENDING: { label: 'Ожидает согласия', color: '#f59e0b', bg: '#fffbeb' }
+                }[b.status] || { label: b.status, color: '#64748b', bg: '#f1f5f9' };
+
+                return (
+                  <div key={b.id} style={styles.bookingCard}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={styles.bookingZoneBadge}>
+                          {b.zoneColor && (
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: b.zoneColor, display: 'inline-block', marginRight: '5px' }} />
+                          )}
+                          {b.zoneName}
+                          {b.employerName && ` • ${b.employerName}`}
+                        </div>
+                        <div style={styles.bookingTitle}>{b.title}</div>
+                      </div>
+                      <span style={{ ...styles.bookingStatusBadge, color: statusInfo.color, backgroundColor: statusInfo.bg }}>
+                        {statusInfo.label}
+                      </span>
+                    </div>
+
+                    <div style={styles.bookingMetaRow}>
+                      {b.nextDate && (
+                        <span style={styles.bookingMeta}>
+                          <IconCalendar size={12} color="#64748b" />
+                          {b.nextDate}
+                        </span>
+                      )}
+                      {b.metro && (
+                        <span style={styles.bookingMeta}>
+                          🚇 {b.metro}
+                        </span>
+                      )}
+                      {b.address && (
+                        <span style={styles.bookingMeta}>
+                          <IconMapPin size={12} color="#64748b" />
+                          {b.address}
+                        </span>
+                      )}
+                      {b.format && (
+                        <span style={styles.bookingMeta}>
+                          {b.format} • {b.duration}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Подсказка, если нет записей */}
+      {profile && (!profile.upcomingTrials || profile.upcomingTrials.length === 0) && (
+        <div style={styles.emptyBookings}>
+          <span>👤 У вас еще нет записей на профессиональные пробы.</span>
+          <span style={{ color: '#0066ff', fontWeight: 700, cursor: 'pointer' }}>
+            Откройте карту АИТУ <IconArrowRight size={12} color="#0066ff" />
+          </span>
+        </div>
+      )}
     </div>
   );
 };
@@ -223,6 +315,94 @@ const styles = {
     overflow: 'hidden',
     boxShadow: '0 8px 24px rgba(10, 37, 64, 0.06)',
     marginBottom: '20px'
+  },
+  bookingsSection: {
+    padding: '14px 20px 18px 20px',
+    borderTop: '1px solid #e2e8f0',
+    backgroundColor: '#fafbff'
+  },
+  bookingsSectionHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '7px',
+    fontSize: '0.88rem',
+    fontWeight: 800,
+    color: '#0a2540',
+    marginBottom: '12px',
+    width: '100%',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    padding: 0,
+    textAlign: 'left'
+  },
+  bookingsCount: {
+    marginLeft: 'auto',
+    backgroundColor: '#0066ff',
+    color: '#ffffff',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    padding: '2px 8px',
+    borderRadius: '10px'
+  },
+  bookingsList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px'
+  },
+  bookingCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: '12px',
+    border: '1px solid #e2e8f0',
+    padding: '12px 14px',
+    boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
+  },
+  bookingZoneBadge: {
+    display: 'flex',
+    alignItems: 'center',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    marginBottom: '2px'
+  },
+  bookingTitle: {
+    fontSize: '0.92rem',
+    fontWeight: 800,
+    color: '#0a2540'
+  },
+  bookingStatusBadge: {
+    fontSize: '0.7rem',
+    fontWeight: 700,
+    padding: '3px 9px',
+    borderRadius: '8px',
+    whiteSpace: 'nowrap',
+    marginLeft: '8px',
+    flexShrink: 0
+  },
+  bookingMetaRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '10px',
+    marginTop: '6px'
+  },
+  bookingMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    fontSize: '0.75rem',
+    color: '#475569',
+    fontWeight: 500
+  },
+  emptyBookings: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '12px 20px 14px 20px',
+    borderTop: '1px solid #e2e8f0',
+    fontSize: '0.8rem',
+    color: '#64748b'
   },
   profileMainRow: {
     padding: '16px 20px',

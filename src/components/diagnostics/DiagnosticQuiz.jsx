@@ -10,7 +10,7 @@ import {
   IconAward 
 } from '../common/Icons';
 
-export const DiagnosticQuiz = ({ onNavigateTab }) => {
+export const DiagnosticQuiz = ({ onNavigateTab, onComplete }) => {
   const [questions, setQuestions] = useState([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedOption, setSelectedOption] = useState(null);
@@ -19,18 +19,25 @@ export const DiagnosticQuiz = ({ onNavigateTab }) => {
   const [resultsData, setResultsData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [fetchingQuestions, setFetchingQuestions] = useState(true);
+  const [submitError, setSubmitError] = useState(null);
 
   useEffect(() => {
     setFetchingQuestions(true);
-    // Load diagnostic questions from PostgreSQL DB
-    api.getDiagnosticQuestions()
-      .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
-          setQuestions(data);
-        }
-      })
-      .catch((err) => console.warn('Could not load questions from API:', err.message))
-      .finally(() => setFetchingQuestions(false));
+
+    // Сначала проверяем — может тест уже пройден ранее?
+    Promise.all([
+      api.getDiagnosticResult().catch(() => null),
+      api.getDiagnosticQuestions().catch(() => [])
+    ]).then(([savedResult, questionsData]) => {
+      if (savedResult && savedResult.topDirections) {
+        // Тест уже пройден — показываем результаты сразу
+        setResultsData(savedResult);
+        setIsCompleted(true);
+      }
+      if (Array.isArray(questionsData) && questionsData.length > 0) {
+        setQuestions(questionsData);
+      }
+    }).finally(() => setFetchingQuestions(false));
   }, []);
 
   const currentQ = questions[currentStep] || null;
@@ -58,12 +65,20 @@ export const DiagnosticQuiz = ({ onNavigateTab }) => {
     } else {
       // Завершение тестирования и сохранение в БД через Prisma
       setLoading(true);
+      setSubmitError(null);
       try {
         const res = await api.submitDiagnosticQuiz(newAnswers);
         if (res && res.topDirections) {
           setResultsData(res);
+        } else {
+          // Если сервер не вернул topDirections — подгружаем из БД
+          const saved = await api.getDiagnosticResult().catch(() => null);
+          if (saved) setResultsData(saved);
         }
+        // Уведомляем родительский компонент (для обновления маршрута)
+        if (onComplete) onComplete();
       } catch (err) {
+        setSubmitError('Не удалось сохранить результаты. Попробуйте ещё раз.');
         console.warn('Could not submit quiz to DB:', err.message);
       } finally {
         setLoading(false);
@@ -78,19 +93,20 @@ export const DiagnosticQuiz = ({ onNavigateTab }) => {
     setIsCompleted(false);
     setAnswers([]);
     setResultsData(null);
+    setSubmitError(null);
   };
 
   if (fetchingQuestions) {
     return (
       <div className="card animate-fade-in" style={{ maxWidth: '850px', margin: '0 auto', textAlign: 'center', padding: '60px 20px' }}>
         <div style={{ width: '48px', height: '48px', borderRadius: '50%', border: '4px solid #f1f5f9', borderTopColor: '#0066ff', margin: '0 auto 16px auto', animation: 'spin 1s linear infinite' }} />
-        <h3 style={{ color: '#0a2540', marginBottom: '8px' }}>Загрузка вопросов диагностики из базы данных...</h3>
-        <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Подгружаем актуальные вопросы RIASEC и Soft-Skills</p>
+        <h3 style={{ color: '#0a2540', marginBottom: '8px' }}>Загрузка диагностики...</h3>
+        <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Проверяем ваши результаты и загружаем вопросы</p>
       </div>
     );
   }
 
-  if (questions.length === 0) {
+  if (questions.length === 0 && !isCompleted) {
     return (
       <div className="card animate-fade-in" style={{ maxWidth: '850px', margin: '0 auto', textAlign: 'center', padding: '40px 20px' }}>
         <IconBrain size={48} color="#64748b" style={{ marginBottom: '16px' }} />
@@ -102,6 +118,19 @@ export const DiagnosticQuiz = ({ onNavigateTab }) => {
 
   if (isCompleted && resultsData) {
     return <DiagnosticResults results={resultsData} onNavigateTab={onNavigateTab} onRestart={handleRestart} />;
+  }
+
+  if (isCompleted && !resultsData) {
+    return (
+      <div className="card animate-fade-in" style={{ maxWidth: '850px', margin: '0 auto', textAlign: 'center', padding: '40px 20px' }}>
+        <IconCheck size={48} color="#10b981" style={{ marginBottom: '16px' }} />
+        <h3 style={{ color: '#0a2540', marginBottom: '8px' }}>Тест завершён!</h3>
+        <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '20px' }}>
+          {submitError || 'Результаты сохранены. Обновите страницу чтобы увидеть аналитику.'}
+        </p>
+        <button className="btn btn-primary" onClick={handleRestart}>Пройти ещё раз</button>
+      </div>
+    );
   }
 
   return (

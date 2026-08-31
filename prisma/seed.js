@@ -7,6 +7,8 @@ async function main() {
   const defaultPasswordHash = await bcrypt.hash('password123', 10);
 
   // 1. Очистка старых данных перед сидированием
+  await prisma.aIRecommendation.deleteMany();
+  await prisma.aIUserFact.deleteMany();
   await prisma.jobApplication.deleteMany();
   await prisma.vacancy.deleteMany();
   await prisma.trialReview.deleteMany();
@@ -605,6 +607,70 @@ async function main() {
       studentId: studentUser.studentProfile.id,
       comment: 'Высокая склонность к математике и алгоритмам. Рекомендовано углубление в разработку ПО и аналитику.',
       isVerified: true
+    }
+  });
+
+  // 9. Память ИИ (AIUserFact) и Рекомендации (AIRecommendation)
+  await prisma.aIUserFact.createMany({
+    data: [
+      {
+        studentId: studentUser.studentProfile.id,
+        category: 'interest',
+        fact: 'Любит рисовать персонажей и создавать концепт-арты',
+        importance: 2,
+        source: 'чат с ИИ'
+      },
+      {
+        studentId: studentUser.studentProfile.id,
+        category: 'skill',
+        fact: 'Базовые навыки работы в Photoshop и Figma',
+        importance: 2,
+        source: 'чат с ИИ'
+      },
+      {
+        studentId: studentUser.studentProfile.id,
+        category: 'preference',
+        fact: 'Предпочитает визуально-творческие задачи и веб-дизайн',
+        importance: 1,
+        source: 'диагностика RIASEC'
+      }
+    ]
+  });
+
+  await prisma.aIRecommendation.create({
+    data: {
+      studentId: studentUser.studentProfile.id,
+      type: 'TRIAL',
+      title: 'Профессиональная проба по UI/UX-дизайну и брендингу',
+      text: 'На основе вашего интереса к рисованию и навыков в Figma, рекомендуем практический воркшоп в лаборатории дизайна АИТУ.',
+      relatedTrialId: 't-des-1',
+      status: 'ACTIVE'
+    }
+  });
+
+  // Сессия чата
+  await prisma.chatSession.create({
+    data: {
+      studentId: studentUser.studentProfile.id,
+      scenario: 'B',
+      currentStage: 'interests',
+      messages: {
+        create: [
+          {
+            role: 'assistant',
+            content: 'Привет! Я твой карьерный ИИ-наставник. Расскажи, чем ты любишь заниматься в свободное время?'
+          },
+          {
+            role: 'user',
+            userId: studentUser.id,
+            content: 'Привет! Я люблю рисовать персонажей и иногда делаю арты в Photoshop и макеты в Figma.'
+          },
+          {
+            role: 'assistant',
+            content: 'Здорово! Сочетание навыков рисования и Figma — отличная база для UI/UX-дизайна и геймдева. В нашем каталоге как раз есть воркшоп «Создание бренда и UI-кита сервиса» в АИТУ. Хочешь узнать подробнее или записаться?'
+          }
+        ]
+      }
     }
   });
 

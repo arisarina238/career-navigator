@@ -108,6 +108,8 @@ model StudentProfile {
   roadmapStages      RoadmapStage[]
   jobApplications    JobApplication[]
   chatSessions       ChatSession[]
+  aiFacts            AIUserFact[]
+  aiRecommendations  AIRecommendation[]
   parentApprovals    ParentApproval[]
   mentorReviews      MentorReview[]
 
@@ -249,8 +251,9 @@ model ProTrial {
   reviewsCount   Int              @default(0)
   description    String           @db.Text
 
-  bookings       TrialBooking[]
-  reviews        TrialReview[]
+  bookings          TrialBooking[]
+  reviews           TrialReview[]
+  aiRecommendations AIRecommendation[]
 
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
@@ -399,6 +402,44 @@ model ChatMessage {
   createdAt DateTime    @default(now())
 
   @@map("chat_messages")
+}
+
+model AIUserFact {
+  id          String         @id @default(uuid())
+  studentId   String
+  student     StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  category    String
+  fact        String         @db.Text
+  importance  Int            @default(1)
+  source      String?
+  
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([studentId])
+  @@map("ai_user_facts")
+}
+
+model AIRecommendation {
+  id             String         @id @default(uuid())
+  studentId      String
+  student        StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  type           String
+  title          String
+  text           String         @db.Text
+
+  relatedTrialId String?
+  relatedTrial   ProTrial?      @relation(fields: [relatedTrialId], references: [id], onDelete: SetNull)
+
+  status         String         @default("ACTIVE")
+
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([studentId])
+  @@map("ai_recommendations")
 }
 
 // ----------------------------------------------------

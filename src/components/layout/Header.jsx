@@ -144,11 +144,11 @@ export const Header = ({
                 title={`Профиль: ${currentUser.fullName || 'Пользователь'}`}
               >
                 <img 
-                  src={currentUser.avatarUrl || currentRole.avatar} 
-                  alt={currentUser.fullName || currentRole.name} 
+                  src={currentUser.avatarUrl || currentRole?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'} 
+                  alt={currentUser.fullName || currentRole?.name || 'Пользователь'} 
                   style={styles.avatarImg} 
                 />
-                <span style={styles.userNameHeader}>{currentUser.fullName || currentRole.name}</span>
+                <span style={styles.userNameHeader}>{currentUser.fullName || currentRole?.name || 'Пользователь'}</span>
               </button>
               <button 
                 onClick={onLogout}

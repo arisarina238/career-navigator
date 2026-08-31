@@ -77,6 +77,7 @@ export const api = {
 
   // 2. Диагностика
   getDiagnosticQuestions: () => request('/api/diagnostics/questions'),
+  getDiagnosticResult: () => request('/api/diagnostics/result'),
   submitDiagnosticQuiz: (answers) =>
     request('/api/diagnostics/submit', {
       method: 'POST',
@@ -143,6 +144,23 @@ export const api = {
     request('/api/assistant/chat', {
       method: 'POST',
       body: JSON.stringify({ message, scenario, stage, sessionId })
+    }),
+  getAssistantHistory: (sessionId = null) =>
+    request(`/api/assistant/history${sessionId ? `?sessionId=${sessionId}` : ''}`),
+  getAssistantFacts: () => request('/api/assistant/facts'),
+  addAssistantFact: (data) =>
+    request('/api/assistant/facts', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+  deleteAssistantFact: (factId) =>
+    request(`/api/assistant/facts/${factId}`, {
+      method: 'DELETE'
+    }),
+  getAssistantRecommendations: () => request('/api/assistant/recommendations'),
+  dismissAssistantRecommendation: (recId) =>
+    request(`/api/assistant/recommendations/${recId}/dismiss`, {
+      method: 'POST'
     })
 };
 

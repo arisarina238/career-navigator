@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../../services/api';
 import { BookingModal } from './BookingModal';
 import { 
@@ -12,7 +12,8 @@ import {
   IconCalendar, 
   IconStar, 
   IconCompass, 
-  IconFilter 
+  IconFilter,
+  IconCheck
 } from '../common/Icons';
 
 const ICON_MAP = {
@@ -30,18 +31,22 @@ export const InteractiveAituMap = () => {
   const [filterFormat, setFilterFormat] = useState('all');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const loadZones = useCallback(() => {
     setLoading(true);
     api.getAituZones()
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
           setZones(data);
-          setSelectedZoneId(data[0].id);
+          setSelectedZoneId((prev) => prev || data[0].id);
         }
       })
       .catch((err) => console.warn('Could not load zones from DB:', err.message))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadZones();
+  }, [loadZones]);
 
   const selectedZone = zones.find((z) => z.id === selectedZoneId) || zones[0] || null;
 
@@ -72,7 +77,15 @@ export const InteractiveAituMap = () => {
 
   return (
     <div style={styles.container} className="animate-fade-in">
-      <BookingModal trial={selectedTrial} isOpen={!!selectedTrial} onClose={() => setSelectedTrial(null)} />
+      <BookingModal
+        trial={selectedTrial}
+        isOpen={!!selectedTrial}
+        onClose={() => setSelectedTrial(null)}
+        onBooked={() => {
+          setSelectedTrial(null);
+          loadZones(); // перезагружаем зоны, чтобы isBooked обновился
+        }}
+      />
 
       {/* Map Header */}
       <div className="card" style={{ marginBottom: '20px' }}>
@@ -176,7 +189,10 @@ export const InteractiveAituMap = () => {
         {/* Pro-trial Cards */}
         <div style={styles.trialsGrid}>
           {filteredTrials.map((trial) => (
-            <div key={trial.id} className="card card-hoverable" style={styles.trialCard}>
+            <div key={trial.id} className="card card-hoverable" style={{
+              ...styles.trialCard,
+              ...(trial.isBooked ? styles.bookedTrialCard : {})
+            }}>
               <div style={styles.trialMetaTop}>
                 <span className="badge badge-primary">{trial.format}</span>
                 <span style={styles.ratingBadge}>
@@ -184,6 +200,13 @@ export const InteractiveAituMap = () => {
                   {trial.rating} ({trial.reviewsCount} отзывов)
                 </span>
               </div>
+
+              {trial.isBooked && (
+                <div style={styles.bookedBanner}>
+                  <IconCheck size={14} color="#10b981" />
+                  <span>Вы записаны на эту пробу</span>
+                </div>
+              )}
 
               <h4 style={styles.trialTitle}>{trial.title}</h4>
               <p style={styles.trialDesc}>{trial.description}</p>
@@ -213,9 +236,20 @@ export const InteractiveAituMap = () => {
                 <div style={styles.slotsCount}>
                   Свободно: <strong>{trial.availableSlots}</strong> из {trial.maxSlots} мест
                 </div>
-                <button className="btn btn-primary" onClick={() => setSelectedTrial(trial)}>
-                  Записаться
-                </button>
+                {trial.isBooked ? (
+                  <button
+                    className="btn"
+                    disabled
+                    style={styles.bookedBtn}
+                  >
+                    <IconCheck size={14} color="#10b981" />
+                    Записан
+                  </button>
+                ) : (
+                  <button className="btn btn-primary" onClick={() => setSelectedTrial(trial)}>
+                    Записаться
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -382,5 +416,35 @@ const styles = {
   slotsCount: {
     fontSize: '0.8rem',
     color: '#64748b'
+  },
+  bookedTrialCard: {
+    borderColor: '#d1fae5',
+    backgroundColor: '#f0fdf8'
+  },
+  bookedBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    backgroundColor: '#ecfdf5',
+    border: '1px solid #6ee7b7',
+    borderRadius: '8px',
+    padding: '6px 10px',
+    fontSize: '0.78rem',
+    fontWeight: 700,
+    color: '#059669',
+    marginBottom: '10px'
+  },
+  bookedBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    backgroundColor: '#ecfdf5',
+    border: '1px solid #6ee7b7',
+    color: '#059669',
+    fontWeight: 700,
+    fontSize: '0.82rem',
+    padding: '7px 14px',
+    borderRadius: '8px',
+    cursor: 'default'
   }
 };

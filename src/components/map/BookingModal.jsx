@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { api } from '../../services/api';
 import { IconClose, IconCalendar, IconMapPin, IconUser, IconCheck, IconCompass } from '../common/Icons';
 
-export const BookingModal = ({ trial, isOpen, onClose }) => {
+export const BookingModal = ({ trial, isOpen, onClose, onBooked }) => {
   const [booked, setBooked] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -14,11 +14,14 @@ export const BookingModal = ({ trial, isOpen, onClose }) => {
       if (trial.id) {
         await api.bookProTrial(trial.id);
       }
+      setBooked(true);
+      // Уведомляем карту об успешной записи
+      if (onBooked) setTimeout(() => onBooked(), 1800);
     } catch (err) {
       console.warn('Booking warning:', err.message);
+      setBooked(true);
     } finally {
       setLoading(false);
-      setBooked(true);
     }
   };
 

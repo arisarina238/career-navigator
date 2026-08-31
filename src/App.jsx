@@ -22,23 +22,17 @@ import { MentorView } from './components/roles/MentorView';
 import { ParentView } from './components/roles/ParentView';
 import { EmployerView } from './components/roles/EmployerView';
 
-const GUEST_ROLE = {
-  id: 'student',
-  title: 'Участник (Школьник)',
-  name: 'Ученик СПб',
-  avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-  gosuslugiVerified: false
-};
-
 export function App() {
-  const [currentUser, setCurrentUser] = useState(() => api.getCurrentUser());
-  const [activeRole, setActiveRole] = useState(GUEST_ROLE);
-  const [activeTab, setActiveTab] = useState('profile');
+  const [currentUser, setCurrentUser] = useState(null);
+  const [activeRole, setActiveRole] = useState(null);
+  const [activeTab, setActiveTab] = useState('login');
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [roadmapKey, setRoadmapKey] = useState(0);
 
-  // Helper to map DB user role to frontend role view
+  // Синхронизация роли с объектом пользователя из БД
   const syncRoleWithUser = useCallback((user) => {
     if (!user || !user.role) {
-      setActiveRole(GUEST_ROLE);
+      setActiveRole(null);
       return;
     }
     const roleUpper = user.role.toUpperCase();
@@ -89,41 +83,60 @@ export function App() {
     }
   }, []);
 
+  // Проверка сессии и токена при старте клиента
   const refreshCurrentUser = useCallback(() => {
     const token = api.getToken();
-    if (token) {
-      api.getMe()
-        .then((res) => {
-          if (res && res.user) {
-            setCurrentUser(res.user);
-            api.setSession(token, res.user);
-            syncRoleWithUser(res.user);
-          }
-        })
-        .catch(() => {
+    if (!token) {
+      setCurrentUser(null);
+      setActiveRole(null);
+      setActiveTab('login');
+      setIsAuthChecking(false);
+      return;
+    }
+
+    api.getMe()
+      .then((res) => {
+        if (res && res.user) {
+          setCurrentUser(res.user);
+          api.setSession(token, res.user);
+          syncRoleWithUser(res.user);
+          setActiveTab('profile');
+        } else {
           api.logout();
           setCurrentUser(null);
-          setActiveRole(GUEST_ROLE);
-        });
-    } else {
-      const stored = api.getCurrentUser();
-      if (stored) {
-        syncRoleWithUser(stored);
-      }
-    }
+          setActiveRole(null);
+          setActiveTab('login');
+        }
+      })
+      .catch(() => {
+        api.logout();
+        setCurrentUser(null);
+        setActiveRole(null);
+        setActiveTab('login');
+      })
+      .finally(() => {
+        setIsAuthChecking(false);
+      });
   }, [syncRoleWithUser]);
 
-  // Restore and verify user session on load
   useEffect(() => {
     refreshCurrentUser();
   }, [refreshCurrentUser]);
 
   const handleNavigateTab = (tabId) => {
+    if (!currentUser && tabId !== 'login' && tabId !== 'register') {
+      setActiveTab('login');
+      return;
+    }
     setActiveTab(tabId);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleStartTour = () => {
+    if (!currentUser) {
+      setActiveTab('login');
+      return;
+    }
     setActiveTab('profile');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -138,14 +151,78 @@ export function App() {
   const handleLogout = () => {
     api.logout();
     setCurrentUser(null);
-    setActiveRole(GUEST_ROLE);
+    setActiveRole(null);
     setActiveTab('login');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Экран проверки авторизации
+  if (isAuthChecking) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#f8fafc',
+        gap: '16px'
+      }}>
+        <div style={{
+          width: '48px',
+          height: '48px',
+          borderRadius: '50%',
+          border: '4px solid #e2e8f0',
+          borderTopColor: '#0066ff',
+          animation: 'spin 1s linear infinite'
+        }} />
+        <span style={{ fontSize: '0.95rem', fontWeight: 600, color: '#475569' }}>
+          Проверка авторизации...
+        </span>
+      </div>
+    );
+  }
+
+  // Если пользователь не авторизован — рендерим только страницу входа/регистрации
+  if (!currentUser) {
+    return (
+      <div className="app-container">
+        <Header 
+          currentRole={null} 
+          activeTab={activeTab} 
+          setActiveTab={handleNavigateTab} 
+          onStartTour={handleStartTour}
+          currentUser={null}
+          onLogout={handleLogout}
+        />
+
+        <main className="main-content" style={{ maxWidth: '600px', margin: '40px auto', padding: '0 20px' }}>
+          {activeTab === 'register' ? (
+            <div className="animate-fade-in">
+              <Register 
+                onRegister={handleAuthSuccess} 
+                onGoToLogin={() => setActiveTab('login')} 
+              />
+            </div>
+          ) : (
+            <div className="animate-fade-in">
+              <Login 
+                onLogin={handleAuthSuccess} 
+                onGoToRegister={() => setActiveTab('register')} 
+              />
+            </div>
+          )}
+        </main>
+
+        <Footer />
+      </div>
+    );
+  }
+
+  // Авторизованный режим
   return (
     <div className="app-container">
-      {/* 1. Sleek Modern Header */}
+      {/* 1. Header */}
       <Header 
         currentRole={activeRole} 
         activeTab={activeTab} 
@@ -155,34 +232,14 @@ export function App() {
         onLogout={handleLogout}
       />
 
-      {/* 2. Role-Customized Segmented Navigation (visible outside auth pages) */}
-      {activeTab !== 'login' && activeTab !== 'register' && (
+      {/* 2. Navigation */}
+      {activeRole && (
         <Navigation activeTabId={activeTab} onSelectTab={handleNavigateTab} activeRole={activeRole} />
       )}
 
-      {/* 3. Main Content Area */}
+      {/* 3. Main Content */}
       <main className="main-content">
-        {/* Auth Pages */}
-        {activeTab === 'login' && (
-          <div className="animate-fade-in">
-            <Login 
-              onLogin={handleAuthSuccess} 
-              onGoToRegister={() => setActiveTab('register')} 
-            />
-          </div>
-        )}
-
-        {activeTab === 'register' && (
-          <div className="animate-fade-in">
-            <Register 
-              onRegister={handleAuthSuccess} 
-              onGoToLogin={() => setActiveTab('login')} 
-            />
-          </div>
-        )}
-
-        {/* Dynamic Content based on Selected Role (when not on auth page) */}
-        {activeTab !== 'login' && activeTab !== 'register' && (
+        {activeRole && (
           <>
             {activeRole.id === 'mentor' && (
               <MentorView activeTab={activeTab} onNavigateTab={handleNavigateTab} />
@@ -207,7 +264,10 @@ export function App() {
                 )}
 
                 {activeTab === 'diagnostics' && (
-                  <DiagnosticQuiz onNavigateTab={handleNavigateTab} />
+                  <DiagnosticQuiz
+                    onNavigateTab={handleNavigateTab}
+                    onComplete={() => setRoadmapKey((k) => k + 1)}
+                  />
                 )}
 
                 {activeTab === 'map' && (
@@ -215,11 +275,11 @@ export function App() {
                 )}
 
                 {activeTab === 'assistant' && (
-                  <AiChatWindow />
+                  <AiChatWindow scenario={currentUser?.studentProfile?.currentScenario || 'A'} />
                 )}
 
                 {activeTab === 'roadmap' && (
-                  <CareerRoadmap activeRole={activeRole} />
+                  <CareerRoadmap key={roadmapKey} activeRole={activeRole} />
                 )}
 
                 {activeTab === 'employers' && (
@@ -231,12 +291,10 @@ export function App() {
         )}
       </main>
 
-      {/* 4. Floating AI Assistant (outside auth pages) */}
-      {activeTab !== 'login' && activeTab !== 'register' && (
-        <AiAssistantWidget />
-      )}
+      {/* 4. Floating AI Assistant (только для авторизованных) */}
+      <AiAssistantWidget />
 
-      {/* 5. Modern Footer */}
+      {/* 5. Footer */}
       <Footer />
     </div>
   );

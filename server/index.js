@@ -375,53 +375,31 @@ app.get('/api/users/roles', async (req, res) => {
 app.get('/api/profile/student', async (req, res) => {
   try {
     const authUser = await getAuthUser(req);
-    let student = null;
-
-    if (authUser && authUser.studentProfile) {
-      student = await prisma.studentProfile.findUnique({
-        where: { id: authUser.studentProfile.id },
-        include: {
-          user: true,
-          mentor: { include: { user: true } },
-          parent: { include: { user: true } },
-          trialBookings: {
-            include: {
-              trial: { include: { zone: true } }
-            }
-          },
-          diagnosticResults: {
-            orderBy: { completedAt: 'desc' },
-            take: 1
-          },
-          roadmapStages: {
-            orderBy: { stageNumber: 'asc' },
-            include: { milestones: true }
-          }
-        }
-      });
-    } else {
-      // Fallback к первому студенту если запрос без авторизации (для публичного режима)
-      student = await prisma.studentProfile.findFirst({
-        include: {
-          user: true,
-          mentor: { include: { user: true } },
-          parent: { include: { user: true } },
-          trialBookings: {
-            include: {
-              trial: { include: { zone: true } }
-            }
-          },
-          diagnosticResults: {
-            orderBy: { completedAt: 'desc' },
-            take: 1
-          },
-          roadmapStages: {
-            orderBy: { stageNumber: 'asc' },
-            include: { milestones: true }
-          }
-        }
-      });
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация ученика' });
     }
+
+    const student = await prisma.studentProfile.findUnique({
+      where: { id: authUser.studentProfile.id },
+      include: {
+        user: true,
+        mentor: { include: { user: true } },
+        parent: { include: { user: true } },
+        trialBookings: {
+          include: {
+            trial: { include: { zone: true } }
+          }
+        },
+        diagnosticResults: {
+          orderBy: { completedAt: 'desc' },
+          take: 1
+        },
+        roadmapStages: {
+          orderBy: { stageNumber: 'asc' },
+          include: { milestones: true }
+        }
+      }
+    });
 
     if (!student) {
       return res.status(404).json({ error: 'Профиль ученика не найден' });
@@ -452,9 +430,16 @@ app.get('/api/profile/student', async (req, res) => {
         id: b.id,
         trialId: b.trialId,
         title: b.trial?.title || 'Профессиональная проба',
+        format: b.trial?.format || 'Очный практикум',
+        duration: b.trial?.duration || '1.5 часа',
+        address: b.trial?.address || 'Санкт-Петербург',
+        metro: b.trial?.metro || null,
         nextDate: b.trial?.nextDate ? b.trial.nextDate.toISOString().replace('T', ' ').substring(0, 16) : '',
         status: b.status,
-        zoneName: b.trial?.zone?.name || 'АИТУ'
+        zoneName: b.trial?.zone?.name || 'АИТУ',
+        zoneColor: b.trial?.zone?.color || '#0066ff',
+        employerName: b.trial?.employer?.companyName || null,
+        description: b.trial?.description || ''
       }))
     });
   } catch (error) {
@@ -530,21 +515,44 @@ app.get('/api/diagnostics/questions', async (req, res) => {
   }
 });
 
+// Получить последний результат диагностики ученика
+app.get('/api/diagnostics/result', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация ученика' });
+    }
+    const student = authUser.studentProfile;
+
+    const result = await prisma.diagnosticResult.findFirst({
+      where: { studentId: student.id },
+      orderBy: { completedAt: 'desc' }
+    });
+
+    if (!result) {
+      return res.json(null); // тест ещё не пройден
+    }
+
+    res.json({
+      id: result.id,
+      date: result.completedAt.toISOString().split('T')[0],
+      topDirections: result.topDirections,
+      scoresDistribution: result.scoresDistribution,
+      strengths: result.strengths
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/diagnostics/submit', async (req, res) => {
   try {
     const { answers } = req.body;
     const authUser = await getAuthUser(req);
-    let student = null;
-
-    if (authUser && authUser.studentProfile) {
-      student = authUser.studentProfile;
-    } else {
-      student = await prisma.studentProfile.findFirst();
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация ученика' });
     }
-
-    if (!student) {
-      return res.status(404).json({ error: 'Профиль ученика не найден' });
-    }
+    const student = authUser.studentProfile;
 
     // Расчет баллов
     const totalScores = { it: 0, engineering: 0, design: 0, medicine: 0, biz: 0 };
@@ -632,6 +640,20 @@ app.get('/api/zones', async (req, res) => {
       }
     });
 
+    // Получаем список trialId, на которые записан текущий пользователь
+    let bookedTrialIds = new Set();
+    const authUser = await getAuthUser(req).catch(() => null);
+    if (authUser && authUser.studentProfile) {
+      const bookings = await prisma.trialBooking.findMany({
+        where: {
+          studentId: authUser.studentProfile.id,
+          status: { not: 'CANCELLED' }
+        },
+        select: { trialId: true }
+      });
+      bookedTrialIds = new Set(bookings.map((b) => b.trialId));
+    }
+
     const formatted = zones.map((z) => ({
       id: z.id,
       name: z.name,
@@ -657,7 +679,8 @@ app.get('/api/zones', async (req, res) => {
         rating: t.rating,
         reviewsCount: t.reviewsCount,
         description: t.description,
-        employer: t.employer ? t.employer.companyName : null
+        employer: t.employer ? t.employer.companyName : null,
+        isBooked: bookedTrialIds.has(t.id)
       }))
     }));
 
@@ -672,18 +695,14 @@ app.post('/api/trials/:trialId/book', async (req, res) => {
   try {
     const { trialId } = req.params;
     const authUser = await getAuthUser(req);
-    let student = null;
-
-    if (authUser && authUser.studentProfile) {
-      student = await prisma.studentProfile.findUnique({
-        where: { id: authUser.studentProfile.id },
-        include: { parent: true }
-      });
-    } else {
-      student = await prisma.studentProfile.findFirst({
-        include: { parent: true }
-      });
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация ученика' });
     }
+
+    const student = await prisma.studentProfile.findUnique({
+      where: { id: authUser.studentProfile.id },
+      include: { parent: true }
+    });
 
     if (!student) {
       return res.status(404).json({ error: 'Профиль ученика не найден' });
@@ -735,7 +754,28 @@ app.post('/api/trials/:trialId/book', async (req, res) => {
       });
     }
 
-    res.json({ success: true, booking });
+    // Обновляем рекомендацию ИИ (помечаем как принятую/забронированную)
+    await prisma.aIRecommendation.updateMany({
+      where: {
+        studentId: student.id,
+        relatedTrialId: trialId,
+        status: 'ACTIVE'
+      },
+      data: {
+        status: 'ACCEPTED'
+      }
+    });
+
+    const fullBooking = await prisma.trialBooking.findUnique({
+      where: { id: booking.id },
+      include: {
+        trial: {
+          include: { zone: true, employer: true }
+        }
+      }
+    });
+
+    res.json({ success: true, booking: fullBooking || booking });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -748,17 +788,10 @@ app.post('/api/trials/:trialId/book', async (req, res) => {
 app.get('/api/roadmap', async (req, res) => {
   try {
     const authUser = await getAuthUser(req);
-    let student = null;
-
-    if (authUser && authUser.studentProfile) {
-      student = authUser.studentProfile;
-    } else {
-      student = await prisma.studentProfile.findFirst();
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация ученика' });
     }
-
-    if (!student) {
-      return res.status(404).json({ error: 'Профиль ученика не найден' });
-    }
+    const student = authUser.studentProfile;
 
     let stages = await prisma.roadmapStage.findMany({
       where: { studentId: student.id },
@@ -775,6 +808,110 @@ app.get('/api/roadmap', async (req, res) => {
         include: { milestones: true }
       });
     }
+
+    // ===== Автосинхронизация статусов этапов по реальным данным =====
+
+    // 1. Проверяем, прошёл ли тест диагностики
+    const diagResult = await prisma.diagnosticResult.findFirst({
+      where: { studentId: student.id },
+      orderBy: { completedAt: 'desc' }
+    });
+    const hasDiagnostic = !!diagResult;
+
+    // 2. Проверяем бронирования профпроб
+    const bookings = await prisma.trialBooking.findMany({
+      where: { studentId: student.id, status: { not: 'CANCELLED' } }
+    });
+    const hasBooking = bookings.length > 0;
+    const hasAttended = bookings.some((b) => b.status === 'ATTENDED');
+
+    // 3. Вычисляем новые статусы для каждого этапа
+    const newStatuses = {};
+    // Этап 1: Диагностика
+    if (hasDiagnostic) {
+      newStatuses[1] = 'COMPLETED';
+    } else {
+      newStatuses[1] = 'IN_PROGRESS'; // всегда активен для новых
+    }
+    // Этап 2: Профпробы
+    if (hasAttended) {
+      newStatuses[2] = 'COMPLETED';
+    } else if (hasBooking) {
+      newStatuses[2] = 'IN_PROGRESS';
+    } else if (hasDiagnostic) {
+      newStatuses[2] = 'IN_PROGRESS'; // диагностика пройдена → пора записываться
+    } else {
+      newStatuses[2] = 'UPCOMING';
+    }
+    // Этап 3: Образование
+    if (hasAttended) {
+      newStatuses[3] = 'IN_PROGRESS';
+    } else {
+      newStatuses[3] = 'UPCOMING';
+    }
+    // Этап 4: Стажировка — всегда upcoming пока нет данных
+    newStatuses[4] = 'UPCOMING';
+
+    // Обновляем milestone для этапа 1 (тест диагностики)
+    const stage1 = stages.find((s) => s.stageNumber === 1);
+    if (stage1 && hasDiagnostic) {
+      // Помечаем milestone "Прохождение теста" как выполненный
+      const diagMilestone = stage1.milestones.find((m) =>
+        m.title.toLowerCase().includes('riasec') || m.title.toLowerCase().includes('тест')
+      );
+      if (diagMilestone && !diagMilestone.isCompleted) {
+        await prisma.roadmapMilestone.update({
+          where: { id: diagMilestone.id },
+          data: { isCompleted: true }
+        });
+      }
+      // Помечаем milestone "Цифровой профиль" как выполненный
+      const profileMilestone = stage1.milestones.find((m) =>
+        m.title.toLowerCase().includes('профил')
+      );
+      if (profileMilestone && !profileMilestone.isCompleted) {
+        await prisma.roadmapMilestone.update({
+          where: { id: profileMilestone.id },
+          data: { isCompleted: true }
+        });
+      }
+    }
+
+    // Обновляем milestone для этапа 2 (профпробы)
+    const stage2 = stages.find((s) => s.stageNumber === 2);
+    if (stage2 && hasBooking) {
+      const probeMilestone = stage2.milestones[0];
+      if (probeMilestone && !probeMilestone.isCompleted && hasAttended) {
+        await prisma.roadmapMilestone.update({
+          where: { id: probeMilestone.id },
+          data: { isCompleted: true }
+        });
+      }
+    }
+
+    // Применяем обновления статусов в БД (только если изменились)
+    for (const stage of stages) {
+      const newStatus = newStatuses[stage.stageNumber];
+      if (newStatus && stage.status !== newStatus) {
+        await prisma.roadmapStage.update({
+          where: { id: stage.id },
+          data: {
+            status: newStatus,
+            badge:
+              newStatus === 'COMPLETED' ? 'Пройдено' :
+              newStatus === 'IN_PROGRESS' ? 'Текущий этап' :
+              'Предстоит'
+          }
+        });
+      }
+    }
+
+    // Перезагружаем обновлённые этапы
+    stages = await prisma.roadmapStage.findMany({
+      where: { studentId: student.id },
+      orderBy: { stageNumber: 'asc' },
+      include: { milestones: true }
+    });
 
     const statusMap = {
       COMPLETED: 'completed',
@@ -844,17 +981,10 @@ app.post('/api/vacancies/:vacancyId/apply', async (req, res) => {
     const { vacancyId } = req.params;
     const { coverLetter } = req.body;
     const authUser = await getAuthUser(req);
-    let student = null;
-
-    if (authUser && authUser.studentProfile) {
-      student = authUser.studentProfile;
-    } else {
-      student = await prisma.studentProfile.findFirst();
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация ученика' });
     }
-
-    if (!student) {
-      return res.status(404).json({ error: 'Профиль ученика не найден' });
-    }
+    const student = authUser.studentProfile;
 
     const latestDiag = await prisma.diagnosticResult.findFirst({
       where: { studentId: student.id },
@@ -896,17 +1026,15 @@ app.post('/api/vacancies/:vacancyId/apply', async (req, res) => {
 app.get('/api/mentor/profile', async (req, res) => {
   try {
     const authUser = await getAuthUser(req);
-    let mentor = null;
-    if (authUser && authUser.mentorProfile) {
-      mentor = await prisma.mentorProfile.findUnique({
-        where: { id: authUser.mentorProfile.id },
-        include: { user: true, students: { include: { user: true } } }
-      });
-    } else {
-      mentor = await prisma.mentorProfile.findFirst({
-        include: { user: true, students: { include: { user: true } } }
-      });
+    if (!authUser || !authUser.mentorProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация наставника' });
     }
+
+    const mentor = await prisma.mentorProfile.findUnique({
+      where: { id: authUser.mentorProfile.id },
+      include: { user: true, students: { include: { user: true } } }
+    });
+
     if (!mentor) return res.status(404).json({ error: 'Наставник не найден' });
     res.json({
       id: mentor.id,
@@ -925,6 +1053,11 @@ app.get('/api/mentor/profile', async (req, res) => {
 
 app.get('/api/mentor/students', async (req, res) => {
   try {
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.mentorProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация наставника' });
+    }
+
     const students = await prisma.studentProfile.findMany({
       include: {
         user: true,
@@ -965,16 +1098,10 @@ app.post('/api/mentor/students/:studentId/note', async (req, res) => {
     const { studentId } = req.params;
     const { comment } = req.body;
     const authUser = await getAuthUser(req);
-    let mentor = null;
-    if (authUser && authUser.mentorProfile) {
-      mentor = authUser.mentorProfile;
-    } else {
-      mentor = await prisma.mentorProfile.findFirst();
+    if (!authUser || !authUser.mentorProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация наставника' });
     }
-
-    if (!mentor) {
-      return res.status(404).json({ error: 'Наставник не найден' });
-    }
+    const mentor = authUser.mentorProfile;
 
     const review = await prisma.mentorReview.create({
       data: {
@@ -994,6 +1121,10 @@ app.post('/api/mentor/students/:studentId/note', async (req, res) => {
 // Массовое бронирование выезда наставником для всех студентов
 app.post('/api/mentor/bulk-book', async (req, res) => {
   try {
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.mentorProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация наставника' });
+    }
     const { trialId } = req.body;
     const targetTrial = trialId
       ? await prisma.proTrial.findUnique({ where: { id: trialId } })
@@ -1037,35 +1168,23 @@ app.post('/api/mentor/bulk-book', async (req, res) => {
 app.get('/api/parent/profile', async (req, res) => {
   try {
     const authUser = await getAuthUser(req);
-    let parent = null;
-    if (authUser && authUser.parentProfile) {
-      parent = await prisma.parentProfile.findUnique({
-        where: { id: authUser.parentProfile.id },
-        include: {
-          user: true,
-          children: {
-            include: {
-              user: true,
-              diagnosticResults: { orderBy: { completedAt: 'desc' }, take: 1 },
-              trialBookings: { include: { trial: true } }
-            }
-          }
-        }
-      });
-    } else {
-      parent = await prisma.parentProfile.findFirst({
-        include: {
-          user: true,
-          children: {
-            include: {
-              user: true,
-              diagnosticResults: { orderBy: { completedAt: 'desc' }, take: 1 },
-              trialBookings: { include: { trial: true } }
-            }
-          }
-        }
-      });
+    if (!authUser || !authUser.parentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация родителя' });
     }
+
+    const parent = await prisma.parentProfile.findUnique({
+      where: { id: authUser.parentProfile.id },
+      include: {
+        user: true,
+        children: {
+          include: {
+            user: true,
+            diagnosticResults: { orderBy: { completedAt: 'desc' }, take: 1 },
+            trialBookings: { include: { trial: true } }
+          }
+        }
+      }
+    });
 
     if (!parent) return res.status(404).json({ error: 'Профиль родителя не найден' });
 
@@ -1101,16 +1220,10 @@ app.get('/api/parent/profile', async (req, res) => {
 app.get('/api/parent/approvals', async (req, res) => {
   try {
     const authUser = await getAuthUser(req);
-    let parent = null;
-    if (authUser && authUser.parentProfile) {
-      parent = authUser.parentProfile;
-    } else {
-      parent = await prisma.parentProfile.findFirst();
+    if (!authUser || !authUser.parentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация родителя' });
     }
-
-    if (!parent) {
-      return res.status(404).json({ error: 'Родитель не найден' });
-    }
+    const parent = authUser.parentProfile;
 
     const approvals = await prisma.parentApproval.findMany({
       where: { parentId: parent.id },
@@ -1128,6 +1241,10 @@ app.get('/api/parent/approvals', async (req, res) => {
 
 app.post('/api/parent/approvals/:approvalId/respond', async (req, res) => {
   try {
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.parentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация родителя' });
+    }
     const { approvalId } = req.params;
     const { status } = req.body; // 'APPROVED' | 'REJECTED'
 
@@ -1161,25 +1278,18 @@ app.post('/api/parent/approvals/:approvalId/respond', async (req, res) => {
 app.get('/api/employer/profile', async (req, res) => {
   try {
     const authUser = await getAuthUser(req);
-    let employer = null;
-    if (authUser && authUser.employerProfile) {
-      employer = await prisma.employerProfile.findUnique({
-        where: { id: authUser.employerProfile.id },
-        include: {
-          user: true,
-          vacancies: true,
-          trials: true
-        }
-      });
-    } else {
-      employer = await prisma.employerProfile.findFirst({
-        include: {
-          user: true,
-          vacancies: true,
-          trials: true
-        }
-      });
+    if (!authUser || !authUser.employerProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация работодателя' });
     }
+
+    const employer = await prisma.employerProfile.findUnique({
+      where: { id: authUser.employerProfile.id },
+      include: {
+        user: true,
+        vacancies: true,
+        trials: true
+      }
+    });
 
     if (!employer) return res.status(404).json({ error: 'Работодатель не найден' });
 
@@ -1205,14 +1315,10 @@ app.get('/api/employer/profile', async (req, res) => {
 app.get('/api/employer/applicants', async (req, res) => {
   try {
     const authUser = await getAuthUser(req);
-    let employer = null;
-    if (authUser && authUser.employerProfile) {
-      employer = authUser.employerProfile;
-    } else {
-      employer = await prisma.employerProfile.findFirst();
+    if (!authUser || !authUser.employerProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация работодателя' });
     }
-
-    if (!employer) return res.status(404).json({ error: 'Работодатель не найден' });
+    const employer = authUser.employerProfile;
 
     const applications = await prisma.jobApplication.findMany({
       where: {
@@ -1260,14 +1366,11 @@ app.post('/api/employer/vacancies', async (req, res) => {
   try {
     const { title, salary, type, description, requirements } = req.body;
     const authUser = await getAuthUser(req);
-    let employer = null;
-    if (authUser && authUser.employerProfile) {
-      employer = authUser.employerProfile;
-    } else {
-      employer = await prisma.employerProfile.findFirst();
+    if (!authUser || !authUser.employerProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация работодателя' });
     }
+    const employer = authUser.employerProfile;
 
-    if (!employer) return res.status(404).json({ error: 'Работодатель не найден' });
     if (!title) return res.status(400).json({ error: 'Укажите название позиции' });
 
     const vacancyTypeEnum = type === 'PRACTICE' ? 'PRACTICE' : type === 'FOR_GRADUATES' ? 'FOR_GRADUATES' : type === 'JUNIOR' ? 'JUNIOR' : 'INTERNSHIP';
@@ -1292,6 +1395,10 @@ app.post('/api/employer/vacancies', async (req, res) => {
 // Изменение статуса отклика (пригласить на интервью и т.д.)
 app.post('/api/employer/applications/:applicationId/status', async (req, res) => {
   try {
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.employerProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация работодателя' });
+    }
     const { applicationId } = req.params;
     const { status } = req.body; // 'INVITED' | 'ACCEPTED' | 'REJECTED' | 'REVIEWING'
 
@@ -1309,53 +1416,231 @@ app.post('/api/employer/applications/:applicationId/status', async (req, res) =>
 });
 
 // ==========================================
-// 10. ИИ-АССИСТЕНТ (С СОХРАНЕНИЕМ В БД)
+// 10. ИИ-АССИСТЕНТ (ПАМЯТЬ, СОХРАНЕНИЕ В БД И РЕКОМЕНДАЦИИ)
 // ==========================================
 
+/**
+ * Вспомогательная функция для извлечения фактов (интересы, навыки, предпочтения)
+ */
+function extractFactsFromText(text) {
+  if (!text || typeof text !== 'string') return [];
+  const lower = text.toLowerCase();
+  const facts = [];
+
+  // Интересы (Interests)
+  if (lower.includes('рисов') || lower.includes('арт') || lower.includes('иллюстрац') || lower.includes('персонаж') || lower.includes('худож')) {
+    facts.push({ category: 'interest', fact: 'Любит рисовать и создавать визуальные образы/персонажей', importance: 2 });
+  }
+  if (lower.includes('программир') || lower.includes('код') || lower.includes('кодить') || lower.includes('разработк') || lower.includes('веб') || lower.includes('сайт')) {
+    facts.push({ category: 'interest', fact: 'Интересуется веб-разработкой и программированием', importance: 2 });
+  }
+  if (lower.includes('данны') || lower.includes('нейросет') || lower.includes('ии') || lower.includes('ml') || lower.includes('машинн') || lower.includes('data science')) {
+    facts.push({ category: 'interest', fact: 'Интересуется анализом данных и искусственным интеллектом', importance: 2 });
+  }
+  if (lower.includes('3d') || lower.includes('моделирован') || lower.includes('робот') || lower.includes('чертеж') || lower.includes('чпу') || lower.includes('желез')) {
+    facts.push({ category: 'interest', fact: 'Увлекается 3D-моделированием, инженерией и робототехникой', importance: 2 });
+  }
+  if (lower.includes('дизайн') || lower.includes('интерфейс') || lower.includes('ux') || lower.includes('ui') || lower.includes('типографик')) {
+    facts.push({ category: 'interest', fact: 'Интересуется UI/UX-дизайном и проектированием интерфейсов', importance: 2 });
+  }
+  if (lower.includes('биолог') || lower.includes('медицин') || lower.includes('генет') || lower.includes('врач') || lower.includes('лаборатор') || lower.includes('пцр')) {
+    facts.push({ category: 'interest', fact: 'Интересуется биомедициной, биологией и лабораторными исследованиями', importance: 2 });
+  }
+  if (lower.includes('бизнес') || lower.includes('стартап') || lower.includes('проект') || lower.includes('менеджмент') || lower.includes('предприним') || lower.includes('питч')) {
+    facts.push({ category: 'interest', fact: 'Проявляет интерес к предпринимательству и управлению проектами', importance: 2 });
+  }
+
+  // Навыки и инструменты (Skills)
+  if (lower.includes('photoshop') || lower.includes('фотошоп')) {
+    facts.push({ category: 'skill', fact: 'Навык работы в Adobe Photoshop', importance: 2 });
+  }
+  if (lower.includes('figma') || lower.includes('фигм')) {
+    facts.push({ category: 'skill', fact: 'Навык прототипирования в Figma', importance: 2 });
+  }
+  if (lower.includes('react') || lower.includes('реакт') || lower.includes('javascript') || lower.includes('js')) {
+    facts.push({ category: 'skill', fact: 'Знакомство с JavaScript и React', importance: 2 });
+  }
+  if (lower.includes('python') || lower.includes('питон') || lower.includes('пайтон')) {
+    facts.push({ category: 'skill', fact: 'Опыт программирования на Python', importance: 2 });
+  }
+  if (lower.includes('компас') || lower.includes('autocad') || lower.includes('blender') || lower.includes('блендер')) {
+    facts.push({ category: 'skill', fact: 'Опыт работы с 3D-редакторами и CAD-системами', importance: 2 });
+  }
+
+  // Предпочтения (Preferences)
+  if (lower.includes('творческ') || lower.includes('креатив')) {
+    facts.push({ category: 'preference', fact: 'Предпочитает творческие и нестандартные задачи', importance: 1 });
+  }
+  if (lower.includes('команд') || lower.includes('вместе') || lower.includes('людьми') || lower.includes('общени')) {
+    facts.push({ category: 'preference', fact: 'Предпочитает командную работу и общение', importance: 1 });
+  }
+  if (lower.includes('самостоят') || lower.includes('один') || lower.includes('тишин') || lower.includes('сосредоточен')) {
+    facts.push({ category: 'preference', fact: 'Предпочитает индивидуальную сосредоточенную работу', importance: 1 });
+  }
+
+  return facts;
+}
+
+/**
+ * Поиск подходящей профессиональной пробы из БД
+ */
+function findMatchingTrial(text, aiAnswer, trials) {
+  const combined = `${text} ${aiAnswer}`.toLowerCase();
+  let bestTrial = null;
+  let highestScore = 0;
+
+  for (const trial of trials) {
+    let score = 0;
+    const trialTitle = (trial.title || '').toLowerCase();
+    const trialDesc = (trial.description || '').toLowerCase();
+    const trialTags = (trial.tags || []).map(t => t.toLowerCase());
+
+    if (combined.includes(trialTitle)) score += 10;
+    for (const tag of trialTags) {
+      if (combined.includes(tag)) score += 3;
+    }
+    
+    // Специальные соответствия тематикам
+    if (trial.id === 't-des-1' && (combined.includes('дизайн') || combined.includes('рисова') || combined.includes('figma') || combined.includes('ux') || combined.includes('ui') || combined.includes('photoshop') || combined.includes('арт'))) {
+      score += 6;
+    }
+    if (trial.id === 't-it-1' && (combined.includes('react') || combined.includes('frontend') || combined.includes('веб') || combined.includes('сайт') || combined.includes('javascript') || combined.includes('программир'))) {
+      score += 6;
+    }
+    if (trial.id === 't-it-2' && (combined.includes('data') || combined.includes('python') || combined.includes('аналит') || combined.includes('нейро') || combined.includes('ml') || combined.includes('ии'))) {
+      score += 6;
+    }
+    if (trial.id === 't-eng-1' && (combined.includes('3d') || combined.includes('чпу') || combined.includes('печать') || combined.includes('инженер') || combined.includes('робот') || combined.includes('компас'))) {
+      score += 6;
+    }
+    if (trial.id === 't-med-1' && (combined.includes('био') || combined.includes('мед') || combined.includes('днк') || combined.includes('генет') || combined.includes('лаборатор'))) {
+      score += 6;
+    }
+    if (trial.id === 't-biz-1' && (combined.includes('стартап') || combined.includes('бизнес') || combined.includes('питч') || combined.includes('менедж') || combined.includes('предприним'))) {
+      score += 6;
+    }
+
+    if (score > highestScore) {
+      highestScore = score;
+      bestTrial = trial;
+    }
+  }
+
+  return highestScore >= 3 ? bestTrial : null;
+}
+
+// 10.1. Отправка сообщения в чат с ИИ
 app.post('/api/assistant/chat', async (req, res) => {
   try {
     const { message, scenario = 'A', stage = 'interests' } = req.body;
     const authUser = await getAuthUser(req);
-    let student = null;
-
-    if (authUser && authUser.studentProfile) {
-      student = authUser.studentProfile;
-    } else {
-      student = await prisma.studentProfile.findFirst({
-        include: { user: true }
-      });
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация ученика' });
     }
+    const student = authUser.studentProfile;
 
     let sessionId = req.body.sessionId;
-    let session;
+    let session = null;
 
-    if (student) {
-      if (sessionId) {
-        session = await prisma.chatSession.findUnique({ where: { id: sessionId } });
-      }
+    if (sessionId) {
+      session = await prisma.chatSession.findUnique({
+        where: { id: sessionId },
+        include: { messages: { orderBy: { createdAt: 'asc' } } }
+      });
+    }
+    if (!session) {
+      // Ищем последнюю активную сессию студента или создаем новую
+      session = await prisma.chatSession.findFirst({
+        where: { studentId: student.id },
+        orderBy: { updatedAt: 'desc' },
+        include: { messages: { orderBy: { createdAt: 'asc' } } }
+      });
+
       if (!session) {
         session = await prisma.chatSession.create({
           data: {
             studentId: student.id,
             scenario: scenario === 'B' ? 'B' : scenario === 'C' ? 'C' : 'A',
             currentStage: stage
-          }
+          },
+          include: { messages: true }
         });
-        sessionId = session.id;
       }
-
-      // Сохраняем сообщение пользователя в БД
-      await prisma.chatMessage.create({
-        data: {
-          sessionId: session.id,
-          userId: student.userId,
-          role: 'user',
-          content: message
-        }
-      });
+      sessionId = session.id;
     }
 
-    // Формируем системный промпт и ответ
+    // Сохраняем сообщение пользователя в БД
+    await prisma.chatMessage.create({
+      data: {
+        sessionId: session.id,
+        userId: student.userId,
+        role: 'user',
+        content: message
+      }
+    });
+
+    // ----------------------------------------------------
+    // Извлечение и сохранение фактов (AIUserFact)
+    // ----------------------------------------------------
+    const extracted = extractFactsFromText(message);
+    for (const item of extracted) {
+      const existingFact = await prisma.aIUserFact.findFirst({
+        where: {
+          studentId: student.id,
+          category: item.category,
+          fact: { contains: item.fact.substring(0, 15) }
+        }
+      });
+      if (!existingFact) {
+        await prisma.aIUserFact.create({
+          data: {
+            studentId: student.id,
+            category: item.category,
+            fact: item.fact,
+            importance: item.importance,
+            source: 'чат с ИИ'
+          }
+        });
+      }
+    }
+
+    // Загружаем память ИИ (AIUserFact) и список реальных профпроб (ProTrial)
+    const existingFacts = await prisma.aIUserFact.findMany({
+      where: { studentId: student.id },
+      orderBy: { importance: 'desc' }
+    });
+
+    const availableTrials = await prisma.proTrial.findMany({
+      include: {
+        employer: true,
+        zone: true
+      }
+    });
+
+    const factsSummary = existingFacts.length > 0
+      ? existingFacts.map(f => `• [${f.category}] ${f.fact}`).join('\n')
+      : 'Факты о пользователе пока не накоплены.';
+
+    const trialsSummary = availableTrials.map(t => 
+      `• "${t.title}" (ID: ${t.id}, Направление: ${t.zone?.name || 'АИТУ'}, Свободно мест: ${t.availableSlots}, Организатор: ${t.employer?.companyName || 'АИТУ'})`
+    ).join('\n');
+
+    // Формируем системный промпт с учетом памяти ИИ и доступных проб
+    const systemPrompt = `Ты — ИИ-ассистент Карьерного Навигатора СПб. Помогаешь школьникам и абитуриентам выбрать профессию в Санкт-Петербурге.
+Сценарий: ${scenario}, Этап: ${stage}.
+
+Память ИИ о школьнике:
+${factsSummary}
+
+Доступные реальные профпробы в каталоге АИТУ:
+${trialsSummary}
+
+Инструкции:
+1. Отвечай дружелюбно, структурированно, емко на русском языке.
+2. Учитывай известные факты об интересах и навыках школьника.
+3. Если школьник рассказывает о своих интересах или спрашивает совета, порекомендуй подходящую реальную профпробу из каталога выше, упомянув её точное название.
+4. Задавай вовлекающие вопросы для продолжения профориентации.`;
+
     let aiAnswer = '';
     try {
       const response = await fetch(`${OLLAMA_URL}/api/chat`, {
@@ -1364,10 +1649,7 @@ app.post('/api/assistant/chat', async (req, res) => {
         body: JSON.stringify({
           model: AI_MODEL,
           messages: [
-            {
-              role: 'system',
-              content: `Ты — ИИ-ассистент Карьерного Навигатора СПб. Помогаешь школьникам и абитуриентам выбрать профессию в Санкт-Петербурге (АИТУ, ВУЗы, предприятия-партнеры: Газпром Нефть, VK, Силовые машины). Сценарий: ${scenario}, Этап: ${stage}. Отвечай дружелюбно, структурированно, емко.`
-            },
+            { role: 'system', content: systemPrompt },
             { role: 'user', content: message }
           ],
           stream: false
@@ -1382,14 +1664,21 @@ app.post('/api/assistant/chat', async (req, res) => {
       console.warn('Ollama not reachable, using fallback intelligent response:', ollamaErr.message);
     }
 
+    // Fallback-логика с учетом ключевых слов и базы профпроб
     if (!aiAnswer) {
-      // Fallback-ответ при отсутствии активного демо Ollama
-      if (message.toLowerCase().includes('react') || message.toLowerCase().includes('проб')) {
-        aiAnswer = 'Отличный выбор! Очная профпроба по React разработке проходит в лаборатории АИТУ СПб (м. Технологический институт). Вы можете записаться на неё прямо через раздел «Карта зон АИТУ». Хотите подобрать дополнительные курсы по фронтенду?';
-      } else if (message.toLowerCase().includes('сценар')) {
-        aiAnswer = 'В Карьерном Навигаторе действуют 3 сценария: Сценарий А (для тех, кто еще не определился), Сценарий Б (углубление в IT и инженерию) и Сценарий В (подготовка к стажировке и трудоустройству).';
+      const lower = message.toLowerCase();
+      if (lower.includes('рисов') || lower.includes('дизайн') || lower.includes('figma') || lower.includes('photoshop') || lower.includes('арт')) {
+        aiAnswer = 'Замечательно! У тебя отличная база для креативных индустрий. На основе твоих навыков рекомендую профессиональную пробу «Создание бренда и UI-кита сервиса» в лаборатории АИТУ. На ней ты сможешь поработать над реальным кейсом и собрать прототип в Figma!';
+      } else if (lower.includes('react') || lower.includes('веб') || lower.includes('программир') || lower.includes('код') || lower.includes('сайт')) {
+        aiAnswer = 'Отличный выбор! Веб-разработка сейчас на пике востребованности. Рекомендую очную пробу «Разработка веб-приложения на React» в АИТУ СПб (м. Технологический институт). Хочешь записаться?';
+      } else if (lower.includes('python') || lower.includes('data') || lower.includes('нейросет') || lower.includes('ml')) {
+        aiAnswer = 'Здорово! В аналитике данных и машинном обучении большой потенциал. Тебе отлично подойдет практикум «Аналитика данных и Обучение ML-модели» в АИТУ СПб.';
+      } else if (lower.includes('3d') || lower.includes('моделирован') || lower.includes('чпу') || lower.includes('робот')) {
+        aiAnswer = 'Прекрасно! Инженерное направление очень востребовано. Попробуй очный практикум «3D-моделирование и печать деталей на ЧПУ» в Инженерном корпусе АИТУ.';
+      } else if (lower.includes('сценар')) {
+        aiAnswer = 'В Карьерном Навигаторе действуют 3 сценария: Сценарий А (первичное самоопределение), Сценарий Б (погружение в IT и инженерию) и Сценарий В (подготовка к стажировкам и работе с партнерами).';
       } else {
-        aiAnswer = `Спасибо за ваш вопрос! Основываясь на анализе ваших склонностей и текущем этапе (${stage}), рекомендую обратить внимание на IT-кластер АИТУ и практические пробы по веб-разработке и анализу данных. Чем ещё я могу помочь в планировании карьеры?`;
+        aiAnswer = `Спасибо за ваш вопрос! Основываясь на анализе ваших склонностей и текущем этапе (${stage}), рекомендую ознакомиться с практическими профпробами в кластерах АИТУ. Расскажите подробнее о ваших любимых предметах или хобби!`;
       }
     }
 
@@ -1404,12 +1693,253 @@ app.post('/api/assistant/chat', async (req, res) => {
       });
     }
 
+    // ----------------------------------------------------
+    // Создание / связывание рекомендации (AIRecommendation -> ProTrial)
+    // ----------------------------------------------------
+    let matchedTrial = findMatchingTrial(message, aiAnswer, availableTrials);
+    let recommendation = null;
+
+    // Проверяем, не записан ли уже студент на эту пробу
+    const alreadyBooked = matchedTrial
+      ? await prisma.trialBooking.findFirst({
+          where: {
+            studentId: student.id,
+            trialId: matchedTrial.id
+          }
+        })
+      : null;
+
+    if (matchedTrial && !alreadyBooked) {
+      const existingRec = await prisma.aIRecommendation.findFirst({
+        where: {
+          studentId: student.id,
+          relatedTrialId: matchedTrial.id,
+          status: 'ACTIVE'
+        },
+        include: {
+          relatedTrial: {
+            include: { employer: true, zone: true }
+          }
+        }
+      });
+
+      if (existingRec) {
+        recommendation = existingRec;
+      } else {
+        recommendation = await prisma.aIRecommendation.create({
+          data: {
+            studentId: student.id,
+            type: 'TRIAL',
+            title: `Рекомендация профпробы: ${matchedTrial.title}`,
+            text: `По твоим интересам и навыкам ИИ-ассистент рекомендует попробовать пробу «${matchedTrial.title}» в АИТУ.`,
+            relatedTrialId: matchedTrial.id,
+            status: 'ACTIVE'
+          },
+          include: {
+            relatedTrial: {
+              include: { employer: true, zone: true }
+            }
+          }
+        });
+      }
+    }
+
+    // Получаем обновленный список фактов памяти
+    const updatedFacts = await prisma.aIUserFact.findMany({
+      where: { studentId: student.id },
+      orderBy: { createdAt: 'desc' }
+    });
+
     res.json({
       answer: aiAnswer,
       scenario,
       stage,
-      sessionId
+      sessionId,
+      facts: updatedFacts,
+      recommendation
     });
+  } catch (error) {
+    console.error('Error in /api/assistant/chat:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 10.2. Получение истории сообщений текущей или активной сессии
+app.get('/api/assistant/history', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация ученика' });
+    }
+    const student = authUser.studentProfile;
+
+    const { sessionId } = req.query;
+    let session = null;
+
+    if (sessionId) {
+      session = await prisma.chatSession.findUnique({
+        where: { id: sessionId },
+        include: {
+          messages: { orderBy: { createdAt: 'asc' } }
+        }
+      });
+    }
+
+    if (!session) {
+      session = await prisma.chatSession.findFirst({
+        where: { studentId: student.id },
+        orderBy: { updatedAt: 'desc' },
+        include: {
+          messages: { orderBy: { createdAt: 'asc' } }
+        }
+      });
+    }
+
+    const facts = await prisma.aIUserFact.findMany({
+      where: { studentId: student.id },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // Находим все записи ученика на пробы, чтобы не рекомендовать их повторно
+    const bookedTrials = await prisma.trialBooking.findMany({
+      where: { studentId: student.id },
+      select: { trialId: true }
+    });
+    const bookedTrialIds = new Set(bookedTrials.map(b => b.trialId));
+
+    const activeRecs = await prisma.aIRecommendation.findMany({
+      where: { studentId: student.id, status: 'ACTIVE' },
+      include: {
+        relatedTrial: {
+          include: { employer: true, zone: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const recommendations = activeRecs.filter(r => !r.relatedTrialId || !bookedTrialIds.has(r.relatedTrialId));
+
+    res.json({
+      session,
+      messages: session ? session.messages : [],
+      facts,
+      recommendations
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 10.3. Получение всех фактов памяти ИИ (AIUserFact)
+app.get('/api/assistant/facts', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация ученика' });
+    }
+    const student = authUser.studentProfile;
+
+    const facts = await prisma.aIUserFact.findMany({
+      where: { studentId: student.id },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json({ facts });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 10.4. Добавление факта в память ИИ
+app.post('/api/assistant/facts', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация ученика' });
+    }
+    const student = authUser.studentProfile;
+
+    const { category = 'interest', fact, importance = 1, source = 'ручной ввод' } = req.body;
+    if (!fact) {
+      return res.status(400).json({ error: 'Поле fact обязательно' });
+    }
+
+    const newFact = await prisma.aIUserFact.create({
+      data: {
+        studentId: student.id,
+        category,
+        fact,
+        importance,
+        source
+      }
+    });
+
+    res.json({ success: true, fact: newFact });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 10.5. Удаление факта из памяти ИИ
+app.delete('/api/assistant/facts/:id', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация ученика' });
+    }
+
+    const { id } = req.params;
+    await prisma.aIUserFact.delete({
+      where: { id }
+    });
+    res.json({ success: true, message: 'Факт удален из памяти ИИ' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 10.6. Получение рекомендаций ИИ (AIRecommendation с relatedTrial)
+app.get('/api/assistant/recommendations', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация ученика' });
+    }
+    const student = authUser.studentProfile;
+
+    const recommendations = await prisma.aIRecommendation.findMany({
+      where: {
+        studentId: student.id,
+        status: 'ACTIVE'
+      },
+      include: {
+        relatedTrial: {
+          include: { employer: true, zone: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json({ recommendations });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 10.7. Отклонение/закрытие рекомендации
+app.post('/api/assistant/recommendations/:id/dismiss', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация ученика' });
+    }
+
+    const { id } = req.params;
+    const updated = await prisma.aIRecommendation.update({
+      where: { id },
+      data: { status: 'DISMISSED' }
+    });
+    res.json({ success: true, recommendation: updated });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
