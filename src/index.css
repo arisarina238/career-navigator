@@ -251,6 +251,15 @@ a {
 /* Responsive fixes */
 @media (max-width: 768px) {
   .main-content {
-    padding: 16px 12px 40px 12px;
+    padding: 12px 10px 40px 10px;
+  }
+  .modal-content {
+    padding: 18px !important;
+    max-width: 95% !important;
+    border-radius: var(--radius-lg) !important;
+    margin: 10px;
+  }
+  .btn {
+    white-space: normal;
   }
 }

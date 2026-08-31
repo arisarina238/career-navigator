@@ -83,6 +83,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ answers })
     }),
+  submitAdaptiveStep: (history) =>
+    request('/api/diagnostics/adaptive-step', {
+      method: 'POST',
+      body: JSON.stringify({ history })
+    }),
 
   // 3. Зоны и Профпробы
   getAituZones: () => request('/api/zones'),
@@ -125,11 +130,32 @@ export const api = {
       body: JSON.stringify({ status })
     }),
 
-  // 8. Кабинет работодателя
+  // 8. Кабинет работодателя (Полный CRUD + Приглашения + Кандидаты)
   getEmployerProfile: () => request('/api/employer/profile'),
+  getEmployerVacancies: () => request('/api/employer/vacancies'),
   getEmployerApplicants: () => request('/api/employer/applicants'),
+  getEmployerCandidates: () => request('/api/employer/candidates'),
+  getEmployerInvitations: () => request('/api/employer/invitations'),
   createEmployerVacancy: (data) =>
     request('/api/employer/vacancies', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+  updateEmployerVacancy: (id, data) =>
+    request(`/api/employer/vacancies/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    }),
+  deleteEmployerVacancy: (id) =>
+    request(`/api/employer/vacancies/${id}`, {
+      method: 'DELETE'
+    }),
+  togglePublishVacancy: (id) =>
+    request(`/api/employer/vacancies/${id}/toggle-publish`, {
+      method: 'POST'
+    }),
+  sendEmployerInvitation: (data) =>
+    request('/api/employer/invitations', {
       method: 'POST',
       body: JSON.stringify(data)
     }),
@@ -139,7 +165,24 @@ export const api = {
       body: JSON.stringify({ status })
     }),
 
-  // 9. ИИ-Ассистент
+  // 9. Приглашения и Уведомления Кандидата
+  getStudentInvitations: () => request('/api/student/invitations'),
+  respondStudentInvitation: (id, status) =>
+    request(`/api/student/invitations/${id}/respond`, {
+      method: 'POST',
+      body: JSON.stringify({ status })
+    }),
+  getNotifications: () => request('/api/notifications'),
+  markNotificationRead: (id) =>
+    request(`/api/notifications/${id}/read`, {
+      method: 'POST'
+    }),
+  markAllNotificationsRead: () =>
+    request('/api/notifications/read-all', {
+      method: 'POST'
+    }),
+
+  // 10. ИИ-Ассистент
   sendChatMessage: (message, scenario = 'A', stage = 'interests', sessionId = null) =>
     request('/api/assistant/chat', {
       method: 'POST',

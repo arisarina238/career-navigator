@@ -545,6 +545,153 @@ app.get('/api/diagnostics/result', async (req, res) => {
   }
 });
 
+// Адаптивный шаг диагностики (АДАПТИВНЫЙ ТЕСТ)
+app.post('/api/diagnostics/adaptive-step', async (req, res) => {
+  try {
+    const { history = [] } = req.body;
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация ученика' });
+    }
+    const student = authUser.studentProfile;
+
+    const accumulated = {
+      interests: new Set(),
+      skills: new Set(),
+      tech: new Set(),
+      level: null,
+      experience: null,
+      workFormat: null,
+      scores: { it: 0, engineering: 0, design: 0, medicine: 0, biz: 0 }
+    };
+
+    history.forEach((h) => {
+      if (h.scores) {
+        Object.entries(h.scores).forEach(([k, v]) => {
+          accumulated.scores[k] = (accumulated.scores[k] || 0) + Number(v);
+        });
+      }
+      const text = (h.selectedOptionText || h.text || '').toLowerCase();
+      if (text.includes('frontend') || text.includes('веб') || text.includes('react') || text.includes('код')) {
+        accumulated.interests.add('Веб-разработка');
+        accumulated.tech.add('React / JavaScript');
+      }
+      if (text.includes('data') || text.includes('python') || text.includes('нейросет')) {
+        accumulated.interests.add('Data Science & ИИ');
+        accumulated.tech.add('Python');
+      }
+      if (text.includes('дизайн') || text.includes('figma') || text.includes('интерфейс')) {
+        accumulated.interests.add('UI/UX Дизайн');
+        accumulated.tech.add('Figma');
+      }
+      if (text.includes('3d') || text.includes('чпу') || text.includes('моделирован')) {
+        accumulated.interests.add('3D и ЧПУ Инженерия');
+        accumulated.tech.add('CAD / Компас-3D');
+      }
+      if (text.includes('опыт') || text.includes('коммерч') || text.includes('проект')) {
+        accumulated.experience = 'Есть практические или учебные проекты';
+      }
+      if (text.includes('начинающ') || text.includes('новичек') || text.includes('базов')) {
+        accumulated.level = 'Начинающий уровень';
+      }
+      if (text.includes('команд') || text.includes('офис') || text.includes('удален')) {
+        accumulated.workFormat = text;
+      }
+    });
+
+    const answeredCount = history.length;
+    const answeredQuestionIds = new Set(history.map((h) => h.questionId));
+
+    const isSufficient = (answeredCount >= 3 && (accumulated.interests.size > 0 || accumulated.level || accumulated.experience)) || answeredCount >= 5;
+
+    if (isSufficient && answeredCount > 0) {
+      const totalPoints = Object.values(accumulated.scores).reduce((a, b) => a + b, 0) || 1;
+      const itPct = Math.min(100, Math.max(15, Math.round(((accumulated.scores.it || 0) / totalPoints) * 100))) || 92;
+      const engPct = Math.min(100, Math.max(15, Math.round(((accumulated.scores.engineering || 0) / totalPoints) * 100))) || 85;
+      const desPct = Math.min(100, Math.max(15, Math.round(((accumulated.scores.design || 0) / totalPoints) * 100))) || 74;
+      const bizPct = Math.min(100, Math.max(15, Math.round(((accumulated.scores.biz || 0) / totalPoints) * 100))) || 60;
+      const medPct = Math.min(100, Math.max(15, Math.round(((accumulated.scores.medicine || 0) / totalPoints) * 100))) || 45;
+
+      const topDirections = [
+        { name: 'Frontend & Web Development', match: itPct, category: 'IT', desc: 'Разработка веб-интерфейсов, работа с современными фреймворками' },
+        { name: 'Инженер по 3D и ЧПУ технологиям', match: engPct, category: 'Инженерия', desc: 'Проектирование деталей и прототипирование в CAD-системах' },
+        { name: 'UI/UX Продуктовый Дизайнер', match: desPct, category: 'Дизайн', desc: 'Проектирование пользовательского опыта и интерфейсов' }
+      ].sort((a, b) => b.match - a.match);
+
+      const scoresDistribution = [
+        { label: 'IT & Программирование', percent: itPct, color: '#0284c7' },
+        { label: 'Инженерия и CAD', percent: engPct, color: '#2563eb' },
+        { label: 'Креативный Дизайн', percent: desPct, color: '#ec4899' },
+        { label: 'Бизнес и Управление', percent: bizPct, color: '#f59e0b' },
+        { label: 'Биомедицина & Лаборатория', percent: medPct, color: '#10b981' }
+      ];
+
+      const strengths = [
+        accumulated.experience || 'Высокая склонность к практическому обучению',
+        Array.from(accumulated.tech).join(', ') || 'Базовое владение современными инструментами',
+        'Аналитический подход к решению практических задач'
+      ];
+
+      const result = await prisma.diagnosticResult.create({
+        data: {
+          studentId: student.id,
+          topDirections,
+          scoresDistribution,
+          strengths,
+          rawAnswers: history
+        }
+      });
+
+      await prisma.studentProfile.update({
+        where: { id: student.id },
+        data: { progressPercent: Math.max(student.progressPercent || 0, 50) }
+      });
+
+      return res.json({
+        isComplete: true,
+        result: {
+          id: result.id,
+          date: result.completedAt.toISOString().split('T')[0],
+          topDirections,
+          scoresDistribution,
+          strengths,
+          candidateProfile: {
+            interests: Array.from(accumulated.interests),
+            tech: Array.from(accumulated.tech),
+            level: accumulated.level || 'Начинающий / Ученик',
+            experience: accumulated.experience || 'Без коммерческого опыта'
+          }
+        }
+      });
+    }
+
+    const allQuestions = await prisma.diagnosticQuestion.findMany({
+      where: { isActive: true },
+      include: { options: true },
+      orderBy: { order: 'asc' }
+    });
+
+    const candidateNext = allQuestions.find((q) => !answeredQuestionIds.has(q.id)) || allQuestions[0];
+
+    return res.json({
+      isComplete: false,
+      step: answeredCount + 1,
+      question: {
+        id: candidateNext.id,
+        category: candidateNext.category,
+        question: candidateNext.questionText,
+        options: candidateNext.options.map((opt) => ({
+          id: opt.id,
+          text: opt.optionText,
+          scores: opt.scores
+        }))
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/diagnostics/submit', async (req, res) => {
   try {
     const { answers } = req.body;
@@ -1270,110 +1417,125 @@ app.post('/api/parent/approvals/:approvalId/respond', async (req, res) => {
   }
 });
 
-// ==========================================
-// 9. РОЛИ: РАБОТОДАТЕЛЬ (EMPLOYER)
-// ==========================================
+// ----------------------------------------------------
+// ЕДИНООБРАЗНЫЙ И ПОЛНЫЙ ФУНКЦИОНАЛ РАБОТОДАТЕЛЯ И КАНДИДАТОВ
+// ----------------------------------------------------
 
-// Профиль компании работодателя
+// Получить профиль текущего работодателя
 app.get('/api/employer/profile', async (req, res) => {
   try {
     const authUser = await getAuthUser(req);
     if (!authUser || !authUser.employerProfile) {
       return res.status(401).json({ error: 'Требуется авторизация работодателя' });
     }
-
-    const employer = await prisma.employerProfile.findUnique({
-      where: { id: authUser.employerProfile.id },
-      include: {
-        user: true,
-        vacancies: true,
-        trials: true
-      }
-    });
-
-    if (!employer) return res.status(404).json({ error: 'Работодатель не найден' });
-
+    const emp = authUser.employerProfile;
     res.json({
-      id: employer.id,
-      name: employer.user.fullName,
-      email: employer.user.email,
-      avatar: employer.user.avatarUrl,
-      companyName: employer.companyName,
-      industry: employer.industry,
-      address: employer.address,
-      description: employer.description,
-      logoUrl: employer.logoUrl,
-      vacanciesCount: employer.vacancies.length,
-      trialsCount: employer.trials.length
+      id: emp.id,
+      companyName: emp.companyName,
+      industry: emp.industry,
+      address: emp.address,
+      description: emp.description,
+      logo: emp.logoUrl,
+      verified: emp.verified,
+      name: authUser.fullName,
+      email: authUser.email,
+      avatar: authUser.avatarUrl
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Список откликов кандидатов на вакансии работодателя
+// Получить список откликов кандидатов на вакансии текущего работодателя
 app.get('/api/employer/applicants', async (req, res) => {
   try {
     const authUser = await getAuthUser(req);
     if (!authUser || !authUser.employerProfile) {
       return res.status(401).json({ error: 'Требуется авторизация работодателя' });
     }
-    const employer = authUser.employerProfile;
-
     const applications = await prisma.jobApplication.findMany({
-      where: {
-        vacancy: {
-          employerId: employer.id
-        }
-      },
+      where: { vacancy: { employerId: authUser.employerProfile.id } },
       include: {
-        vacancy: true,
-        student: {
-          include: {
-            user: true,
-            diagnosticResults: { orderBy: { completedAt: 'desc' }, take: 1 },
-            trialBookings: { include: { trial: true } }
-          }
-        }
-      },
-      orderBy: { appliedAt: 'desc' }
+        student: { include: { user: true } },
+        vacancy: true
+      }
     });
-
-    res.json(
-      applications.map((appItem) => {
-        const diag = appItem.student.diagnosticResults[0];
-        const bookings = appItem.student.trialBookings.map((b) => b.trial?.title).filter(Boolean);
-        return {
-          id: appItem.id,
-          name: appItem.student.user.fullName,
-          avatar: appItem.student.user.avatarUrl,
-          position: appItem.vacancy.title,
-          match: appItem.matchScore ? `${appItem.matchScore}%` : `${diag?.topDirections?.[0]?.match || 90}%`,
-          status: appItem.status === 'INVITED' ? 'Приглашен на интервью' : appItem.status === 'ACCEPTED' ? 'Принят' : appItem.status === 'REJECTED' ? 'Отклонен' : 'На рассмотрении',
-          portfolio: bookings.length > 0 ? `Пробы: ${bookings.join(', ')}` : (diag ? `Диагностика: ${diag.topDirections?.[0]?.name}` : 'Цифровой профиль СПб'),
-          date: appItem.appliedAt.toISOString().split('T')[0],
-          coverLetter: appItem.coverLetter
-        };
-      })
-    );
+    res.json(applications.map(app => ({
+      id: app.id,
+      candidateName: app.student.user.fullName,
+      candidateSchool: app.student.school || 'ГБОУ СОШ СПб',
+      vacancyTitle: app.vacancy.title,
+      coverLetter: app.coverLetter || '',
+      status: app.status,
+      date: app.appliedAt ? app.appliedAt.toISOString().substring(0, 10) : ''
+    })));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Создание новой вакансии работодателем
-app.post('/api/employer/vacancies', async (req, res) => {
+// Получить все вакансии / стажировки текущего работодателя (включая черновики)
+app.get('/api/employer/vacancies', async (req, res) => {
   try {
-    const { title, salary, type, description, requirements } = req.body;
     const authUser = await getAuthUser(req);
     if (!authUser || !authUser.employerProfile) {
       return res.status(401).json({ error: 'Требуется авторизация работодателя' });
     }
     const employer = authUser.employerProfile;
 
-    if (!title) return res.status(400).json({ error: 'Укажите название позиции' });
+    const vacancies = await prisma.vacancy.findMany({
+      where: { employerId: employer.id },
+      include: {
+        _count: {
+          select: { applications: true, jobInvitations: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json(
+      vacancies.map((v) => ({
+        id: v.id,
+        title: v.title,
+        salary: v.salary,
+        type: v.type,
+        typeLabel: v.type === 'INTERNSHIP' ? 'Стажировка' : v.type === 'PRACTICE' ? 'Практика' : v.type === 'JUNIOR' ? 'Junior позиция' : 'Для выпускников',
+        description: v.description,
+        requirements: v.requirements,
+        location: v.location || employer.address,
+        isActive: v.isActive,
+        isDraft: v.isDraft,
+        statusLabel: v.isDraft ? 'Черновик' : v.isActive ? 'Опубликована' : 'В архиве',
+        applicationsCount: v._count.applications,
+        invitationsCount: v._count.jobInvitations,
+        createdAt: v.createdAt.toISOString().split('T')[0]
+      }))
+    );
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Создание вакансии / стажировки (Черновик или Публикация)
+app.post('/api/employer/vacancies', async (req, res) => {
+  try {
+    const { title, salary, type, description, requirements, location, isDraft = false } = req.body;
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.employerProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация работодателя' });
+    }
+    const employer = authUser.employerProfile;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'Укажите название позиции' });
+    }
 
     const vacancyTypeEnum = type === 'PRACTICE' ? 'PRACTICE' : type === 'FOR_GRADUATES' ? 'FOR_GRADUATES' : type === 'JUNIOR' ? 'JUNIOR' : 'INTERNSHIP';
+    const reqArray = Array.isArray(requirements)
+      ? requirements.filter(Boolean)
+      : typeof requirements === 'string'
+      ? requirements.split(',').map((s) => s.trim()).filter(Boolean)
+      : ['Базовые профильные знания'];
 
     const vacancy = await prisma.vacancy.create({
       data: {
@@ -1381,8 +1543,11 @@ app.post('/api/employer/vacancies', async (req, res) => {
         title: title.trim(),
         salary: salary || 'По результатам собеседования',
         type: vacancyTypeEnum,
-        description: description || 'Стажировка в партнерской компании Санкт-Петербурга',
-        requirements: Array.isArray(requirements) ? requirements : ['Коммуникабельность', 'Базовые навыки']
+        description: description || 'Описание позиций и задач стажера',
+        requirements: reqArray.length > 0 ? reqArray : ['Готовность к обучению'],
+        location: location || employer.address,
+        isActive: !isDraft,
+        isDraft: Boolean(isDraft)
       }
     });
 
@@ -1392,7 +1557,252 @@ app.post('/api/employer/vacancies', async (req, res) => {
   }
 });
 
-// Изменение статуса отклика (пригласить на интервью и т.д.)
+// Редактирование вакансии / стажировки
+app.put('/api/employer/vacancies/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, salary, type, description, requirements, location, isDraft } = req.body;
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.employerProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация работодателя' });
+    }
+    const employer = authUser.employerProfile;
+
+    const existing = await prisma.vacancy.findUnique({ where: { id } });
+    if (!existing || existing.employerId !== employer.id) {
+      return res.status(404).json({ error: 'Вакансия не найдена или нет прав' });
+    }
+
+    const reqArray = Array.isArray(requirements)
+      ? requirements.filter(Boolean)
+      : typeof requirements === 'string'
+      ? requirements.split(',').map((s) => s.trim()).filter(Boolean)
+      : existing.requirements;
+
+    const updated = await prisma.vacancy.update({
+      where: { id },
+      data: {
+        title: title ? title.trim() : existing.title,
+        salary: salary !== undefined ? salary : existing.salary,
+        type: type ? (type === 'PRACTICE' ? 'PRACTICE' : type === 'FOR_GRADUATES' ? 'FOR_GRADUATES' : type === 'JUNIOR' ? 'JUNIOR' : 'INTERNSHIP') : existing.type,
+        description: description !== undefined ? description : existing.description,
+        requirements: reqArray,
+        location: location !== undefined ? location : existing.location,
+        isDraft: isDraft !== undefined ? Boolean(isDraft) : existing.isDraft,
+        isActive: isDraft !== undefined ? !isDraft : existing.isActive
+      }
+    });
+
+    res.json({ success: true, vacancy: updated });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Переключение статуса публикации (Опубликовать / В архив / В черновики)
+app.post('/api/employer/vacancies/:id/toggle-publish', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.employerProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация работодателя' });
+    }
+    const employer = authUser.employerProfile;
+
+    const existing = await prisma.vacancy.findUnique({ where: { id } });
+    if (!existing || existing.employerId !== employer.id) {
+      return res.status(404).json({ error: 'Вакансия не найдена' });
+    }
+
+    const nextIsActive = !existing.isActive;
+    const updated = await prisma.vacancy.update({
+      where: { id },
+      data: {
+        isActive: nextIsActive,
+        isDraft: false
+      }
+    });
+
+    res.json({ success: true, vacancy: updated });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Удаление вакансии
+app.delete('/api/employer/vacancies/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.employerProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация работодателя' });
+    }
+    const employer = authUser.employerProfile;
+
+    const existing = await prisma.vacancy.findUnique({ where: { id } });
+    if (!existing || existing.employerId !== employer.id) {
+      return res.status(404).json({ error: 'Вакансия не найдена' });
+    }
+
+    await prisma.vacancy.delete({ where: { id } });
+    res.json({ success: true, deletedId: id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Поиск и получение списка всех кандидатов (для приглашения работодателем)
+app.get('/api/employer/candidates', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.employerProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация работодателя' });
+    }
+    const employer = authUser.employerProfile;
+
+    const students = await prisma.studentProfile.findMany({
+      include: {
+        user: true,
+        diagnosticResults: { orderBy: { completedAt: 'desc' }, take: 1 },
+        trialBookings: { include: { trial: true } },
+        jobInvitations: { where: { employerId: employer.id } },
+        jobApplications: {
+          where: { vacancy: { employerId: employer.id } },
+          include: { vacancy: true }
+        }
+      }
+    });
+
+    res.json(
+      students.map((st) => {
+        const topDiag = st.diagnosticResults[0];
+        const latestInvitation = st.jobInvitations[0];
+        const latestApplication = st.jobApplications[0];
+
+        return {
+          id: st.id,
+          userId: st.userId,
+          name: st.user.fullName,
+          avatar: st.user.avatarUrl,
+          grade: st.grade || '9 класс',
+          school: st.school || 'ГБОУ СОШ Санкт-Петербурга',
+          topDirection: topDiag?.topDirections?.[0]?.name || 'Диагностика не пройдена',
+          matchScore: topDiag?.topDirections?.[0]?.match || 90,
+          category: topDiag?.topDirections?.[0]?.category || 'IT',
+          strengths: topDiag?.strengths || ['Усидчивость', 'Логика'],
+          trialBookingsCount: st.trialBookings.length,
+          hasAttendedTrials: st.trialBookings.some((b) => b.status === 'ATTENDED'),
+          invitationStatus: latestInvitation ? latestInvitation.status : null,
+          invitationId: latestInvitation?.id || null,
+          applicationStatus: latestApplication ? latestApplication.status : null,
+          applicationPosition: latestApplication?.vacancy?.title || null
+        };
+      })
+    );
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Отправка приглашения кандидату от работодателя (END-TO-END FLOW)
+app.post('/api/employer/invitations', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.employerProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация работодателя' });
+    }
+    const employer = authUser.employerProfile;
+    const { studentId, vacancyId, title, message, interviewDate } = req.body;
+
+    if (!studentId) {
+      return res.status(400).json({ error: 'Укажите кандидата для приглашения' });
+    }
+
+    const student = await prisma.studentProfile.findUnique({
+      where: { id: studentId },
+      include: { user: true }
+    });
+
+    if (!student) {
+      return res.status(404).json({ error: 'Кандидат не найден' });
+    }
+
+    let vacancyTitle = 'Приглашение на стажировку';
+    if (vacancyId) {
+      const vac = await prisma.vacancy.findUnique({ where: { id: vacancyId } });
+      if (vac) vacancyTitle = vac.title;
+    }
+
+    const invitation = await prisma.jobInvitation.create({
+      data: {
+        employerId: employer.id,
+        studentId: student.id,
+        vacancyId: vacancyId || null,
+        title: title || vacancyTitle,
+        message: message || `Компания «${employer.companyName}» приглашает вас на прохождение собеседования/стажировки.`,
+        interviewDate: interviewDate ? new Date(interviewDate) : null,
+        status: 'PENDING'
+      }
+    });
+
+    // СОЗДАЁМ РЕАЛЬНОЕ УВЕДОМЛЕНИЕ ДЛЯ КАНДИДАТА В БД!
+    await prisma.notification.create({
+      data: {
+        userId: student.userId,
+        type: 'INVITATION',
+        title: `Приглашение от ${employer.companyName}`,
+        message: `Вас приглашают на позицию «${invitation.title}». Нажмите, чтобы посмотреть детали и дать ответ.`,
+        link: '/profile'
+      }
+    });
+
+    res.status(201).json({ success: true, invitation });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Список всех отправленных приглашений работодателя
+app.get('/api/employer/invitations', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.employerProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация работодателя' });
+    }
+    const employer = authUser.employerProfile;
+
+    const invitations = await prisma.jobInvitation.findMany({
+      where: { employerId: employer.id },
+      include: {
+        student: { include: { user: true } },
+        vacancy: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json(
+      invitations.map((inv) => ({
+        id: inv.id,
+        candidateName: inv.student.user.fullName,
+        candidateAvatar: inv.student.user.avatarUrl,
+        position: inv.title,
+        message: inv.message,
+        interviewDate: inv.interviewDate ? inv.interviewDate.toISOString().split('T')[0] : null,
+        status: inv.status,
+        statusLabel:
+          inv.status === 'PENDING' ? 'Ожидает ответа' :
+          inv.status === 'ACCEPTED' ? 'Принято' :
+          inv.status === 'INTERVIEW_SCHEDULED' ? 'Интервью назначено' :
+          inv.status === 'REJECTED' ? 'Отклонено' : 'Завершено',
+        sentAt: inv.createdAt.toISOString().split('T')[0]
+      }))
+    );
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Изменение статуса отклика работодателем + отправка уведомления кандидату
 app.post('/api/employer/applications/:applicationId/status', async (req, res) => {
   try {
     const authUser = await getAuthUser(req);
@@ -1402,6 +1812,16 @@ app.post('/api/employer/applications/:applicationId/status', async (req, res) =>
     const { applicationId } = req.params;
     const { status } = req.body; // 'INVITED' | 'ACCEPTED' | 'REJECTED' | 'REVIEWING'
 
+    const appItem = await prisma.jobApplication.findUnique({
+      where: { id: applicationId },
+      include: {
+        vacancy: { include: { employer: true } },
+        student: true
+      }
+    });
+
+    if (!appItem) return res.status(404).json({ error: 'Отклик не найден' });
+
     const updated = await prisma.jobApplication.update({
       where: { id: applicationId },
       data: {
@@ -1409,7 +1829,178 @@ app.post('/api/employer/applications/:applicationId/status', async (req, res) =>
       }
     });
 
+    // Отправляем уведомление кандидату
+    const statusText =
+      status === 'INVITED' ? 'пригласил вас на интервью' :
+      status === 'ACCEPTED' ? 'принял ваш отклик!' :
+      status === 'REJECTED' ? 'отклонил отклик' : 'рассматривает ваш отклик';
+
+    await prisma.notification.create({
+      data: {
+        userId: appItem.student.userId,
+        type: 'APPLICATION_STATUS',
+        title: `Статус отклика в ${appItem.vacancy.employer.companyName}`,
+        message: `Работодатель ${statusText} на позицию «${appItem.vacancy.title}».`,
+        link: '/profile'
+      }
+    });
+
     res.json({ success: true, application: updated });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ----------------------------------------------------
+// ПОЛУЧЕНИЕ И ОТВЕТ НА ПРИГЛАШЕНИЯ ДЛЯ КАНДИДАТА (STUDENT)
+// ----------------------------------------------------
+
+// Получить приглашения текущего студента
+app.get('/api/student/invitations', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация ученика' });
+    }
+    const student = authUser.studentProfile;
+
+    const invitations = await prisma.jobInvitation.findMany({
+      where: { studentId: student.id },
+      include: {
+        employer: { include: { user: true } },
+        vacancy: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json(
+      invitations.map((inv) => ({
+        id: inv.id,
+        employerName: inv.employer.companyName,
+        employerLogo: inv.employer.logoUrl,
+        industry: inv.employer.industry,
+        title: inv.title,
+        message: inv.message,
+        interviewDate: inv.interviewDate ? inv.interviewDate.toISOString().split('T')[0] : null,
+        status: inv.status,
+        statusLabel:
+          inv.status === 'PENDING' ? 'Ожидает вашего ответа' :
+          inv.status === 'ACCEPTED' ? 'Вы приняли приглашение' :
+          inv.status === 'INTERVIEW_SCHEDULED' ? 'Интервью назначено' :
+          inv.status === 'REJECTED' ? 'Отклонено вами' : 'Завершено',
+        date: inv.createdAt.toISOString().split('T')[0]
+      }))
+    );
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Ответить на приглашение (Принять или Отклонить)
+app.post('/api/student/invitations/:id/respond', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body; // 'ACCEPTED' | 'REJECTED'
+    const authUser = await getAuthUser(req);
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({ error: 'Требуется авторизация ученика' });
+    }
+    const student = authUser.studentProfile;
+
+    const inv = await prisma.jobInvitation.findUnique({
+      where: { id },
+      include: {
+        employer: { include: { user: true } },
+        student: { include: { user: true } }
+      }
+    });
+
+    if (!inv || inv.studentId !== student.id) {
+      return res.status(404).json({ error: 'Приглашение не найдено' });
+    }
+
+    const nextStatus = status === 'ACCEPTED' ? 'ACCEPTED' : 'REJECTED';
+    const updated = await prisma.jobInvitation.update({
+      where: { id },
+      data: { status: nextStatus }
+    });
+
+    // Отправляем уведомление работодателю
+    const actionText = nextStatus === 'ACCEPTED' ? 'принял ваше приглашение на интервью!' : 'отклонил приглашение.';
+    await prisma.notification.create({
+      data: {
+        userId: inv.employer.userId,
+        type: 'INVITATION_RESPONSE',
+        title: `Ответ кандидата ${inv.student.user.fullName}`,
+        message: `Кандидат ${inv.student.user.fullName} ${actionText}`,
+        link: '/employer'
+      }
+    });
+
+    res.json({ success: true, invitation: updated });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ----------------------------------------------------
+// СИСТЕМА УВЕДОМЛЕНИЙ (NOTIFICATIONS)
+// ----------------------------------------------------
+
+// Получить список уведомлений пользователя
+app.get('/api/notifications', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser) {
+      return res.status(401).json({ error: 'Требуется авторизация' });
+    }
+
+    const notifications = await prisma.notification.findMany({
+      where: { userId: authUser.id },
+      orderBy: { createdAt: 'desc' },
+      take: 30
+    });
+
+    const unreadCount = await prisma.notification.count({
+      where: { userId: authUser.id, isRead: false }
+    });
+
+    res.json({ notifications, unreadCount });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Пометить одно уведомление прочитанным
+app.post('/api/notifications/:id/read', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const authUser = await getAuthUser(req);
+    if (!authUser) return res.status(401).json({ error: 'Требуется авторизация' });
+
+    await prisma.notification.updateMany({
+      where: { id, userId: authUser.id },
+      data: { isRead: true }
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Пометить все уведомления прочитанными
+app.post('/api/notifications/read-all', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser) return res.status(401).json({ error: 'Требуется авторизация' });
+
+    await prisma.notification.updateMany({
+      where: { userId: authUser.id, isRead: false },
+      data: { isRead: true }
+    });
+
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

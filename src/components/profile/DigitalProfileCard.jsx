@@ -271,7 +271,7 @@ export const DigitalProfileCard = ({ currentRole }) => {
                       )}
                       {b.metro && (
                         <span style={styles.bookingMeta}>
-                          🚇 {b.metro}
+                          <IconMapPin size={12} color="#64748b" /> {b.metro}
                         </span>
                       )}
                       {b.address && (
@@ -294,15 +294,116 @@ export const DigitalProfileCard = ({ currentRole }) => {
         </div>
       )}
 
+      {/* SECTION: ПРИГЛАШЕНИЯ ОТ РАБОТОДАТЕЛЕЙ (END-TO-END FLOW) */}
+      <StudentInvitationsSection />
+
       {/* Подсказка, если нет записей */}
       {profile && (!profile.upcomingTrials || profile.upcomingTrials.length === 0) && (
         <div style={styles.emptyBookings}>
-          <span>👤 У вас еще нет записей на профессиональные пробы.</span>
+          <IconUser size={16} color="#64748b" />
+          <span>У вас еще нет записей на профессиональные пробы.</span>
           <span style={{ color: '#0066ff', fontWeight: 700, cursor: 'pointer' }}>
             Откройте карту АИТУ <IconArrowRight size={12} color="#0066ff" />
           </span>
         </div>
       )}
+    </div>
+  );
+};
+
+// Компонент списка приглашений от работодателей для кандидата
+const StudentInvitationsSection = () => {
+  const [invitations, setInvitations] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchInvitations = () => {
+    setLoading(true);
+    api.getStudentInvitations()
+      .then((data) => {
+        if (Array.isArray(data)) setInvitations(data);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchInvitations();
+  }, []);
+
+  const handleRespond = async (id, status) => {
+    try {
+      await api.respondStudentInvitation(id, status);
+      fetchInvitations();
+    } catch (err) {
+      alert('Ошибка отправки ответа: ' + err.message);
+    }
+  };
+
+  if (invitations.length === 0) return null;
+
+  return (
+    <div style={{ padding: '16px 20px', borderTop: '1px solid #e2e8f0', backgroundColor: '#f0f9ff' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+        <IconSparkles size={18} color="#0066ff" />
+        <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0a2540' }}>
+          Приглашения от компании-работодателей ({invitations.length})
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {invitations.map((inv) => (
+          <div key={inv.id} style={{
+            backgroundColor: '#ffffff',
+            padding: '14px 16px',
+            borderRadius: '12px',
+            border: '1px solid #bae6fd',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}>
+            <div style={{ flex: 1, minWidth: '240px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                <span className="badge badge-primary">{inv.employerName}</span>
+                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>от {inv.date}</span>
+              </div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0a2540' }}>{inv.title}</div>
+              <p style={{ fontSize: '0.82rem', color: '#475569', margin: '4px 0', lineHeight: 1.4 }}>{inv.message}</p>
+              {inv.interviewDate && (
+                <div style={{ fontSize: '0.78rem', color: '#0066ff', fontWeight: 700 }}>
+                  <IconCalendar size={12} color="#0066ff" /> Дата собеседования: {inv.interviewDate}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              {inv.status === 'PENDING' ? (
+                <>
+                  <button
+                    className="btn btn-primary"
+                    style={{ padding: '6px 12px', fontSize: '0.78rem' }}
+                    onClick={() => handleRespond(inv.id, 'ACCEPTED')}
+                  >
+                    Принять
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ padding: '6px 12px', fontSize: '0.78rem', color: '#ef4444' }}
+                    onClick={() => handleRespond(inv.id, 'REJECTED')}
+                  >
+                    Отклонить
+                  </button>
+                </>
+              ) : (
+                <span className={`badge ${inv.status === 'ACCEPTED' ? 'badge-success' : 'badge-navy'}`}>
+                  {inv.statusLabel}
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };

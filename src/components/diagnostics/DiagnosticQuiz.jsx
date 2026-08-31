@@ -11,107 +11,109 @@ import {
 } from '../common/Icons';
 
 export const DiagnosticQuiz = ({ onNavigateTab, onComplete }) => {
-  const [questions, setQuestions] = useState([]);
-  const [currentStep, setCurrentStep] = useState(0);
+  const [history, setHistory] = useState([]);
+  const [currentQuestion, setCurrentQuestion] = useState(null);
+  const [stepNumber, setStepNumber] = useState(1);
   const [selectedOption, setSelectedOption] = useState(null);
   const [isCompleted, setIsCompleted] = useState(false);
-  const [answers, setAnswers] = useState([]);
   const [resultsData, setResultsData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [fetchingQuestions, setFetchingQuestions] = useState(true);
   const [submitError, setSubmitError] = useState(null);
 
-  useEffect(() => {
+  // Initialize Adaptive Test
+  const initAdaptiveTest = async () => {
     setFetchingQuestions(true);
-
-    // Сначала проверяем — может тест уже пройден ранее?
-    Promise.all([
-      api.getDiagnosticResult().catch(() => null),
-      api.getDiagnosticQuestions().catch(() => [])
-    ]).then(([savedResult, questionsData]) => {
+    setSubmitError(null);
+    try {
+      // Check if diagnostic was already completed
+      const savedResult = await api.getDiagnosticResult().catch(() => null);
       if (savedResult && savedResult.topDirections) {
-        // Тест уже пройден — показываем результаты сразу
         setResultsData(savedResult);
         setIsCompleted(true);
+        setFetchingQuestions(false);
+        return;
       }
-      if (Array.isArray(questionsData) && questionsData.length > 0) {
-        setQuestions(questionsData);
-      }
-    }).finally(() => setFetchingQuestions(false));
-  }, []);
 
-  const currentQ = questions[currentStep] || null;
+      // Fetch first adaptive question
+      const res = await api.submitAdaptiveStep([]);
+      if (res && res.isComplete) {
+        setResultsData(res.result);
+        setIsCompleted(true);
+      } else if (res && res.question) {
+        setCurrentQuestion(res.question);
+        setStepNumber(res.step || 1);
+      }
+    } catch (err) {
+      console.warn('Error initiating adaptive test:', err.message);
+      setSubmitError('Ошибка загрузки адаптивного теста. Попробуйте обновить страницу.');
+    } finally {
+      setFetchingQuestions(false);
+    }
+  };
+
+  useEffect(() => {
+    initAdaptiveTest();
+  }, []);
 
   const handleSelectOption = (idx) => {
     setSelectedOption(idx);
   };
 
-  const handleNext = async () => {
-    if (selectedOption === null || !currentQ) return;
-    const selectedOptObj = currentQ?.options?.[selectedOption];
-    const newAnswers = [
-      ...answers, 
-      { 
-        questionId: currentQ.id, 
-        selectedOptionIndex: selectedOption, 
-        scores: selectedOptObj?.scores 
+  const handleNextAdaptiveStep = async () => {
+    if (selectedOption === null || !currentQuestion) return;
+    const selectedOptObj = currentQuestion.options?.[selectedOption];
+    if (!selectedOptObj) return;
+
+    const newHistory = [
+      ...history,
+      {
+        questionId: currentQuestion.id,
+        questionText: currentQuestion.question,
+        selectedOptionText: selectedOptObj.text,
+        scores: selectedOptObj.scores,
+        category: currentQuestion.category
       }
     ];
-    setAnswers(newAnswers);
+    setHistory(newHistory);
+    setSelectedOption(null);
+    setLoading(true);
 
-    if (currentStep + 1 < questions.length) {
-      setCurrentStep(currentStep + 1);
-      setSelectedOption(null);
-    } else {
-      // Завершение тестирования и сохранение в БД через Prisma
-      setLoading(true);
-      setSubmitError(null);
-      try {
-        const res = await api.submitDiagnosticQuiz(newAnswers);
-        if (res && res.topDirections) {
-          setResultsData(res);
-        } else {
-          // Если сервер не вернул topDirections — подгружаем из БД
-          const saved = await api.getDiagnosticResult().catch(() => null);
-          if (saved) setResultsData(saved);
-        }
-        // Уведомляем родительский компонент (для обновления маршрута)
-        if (onComplete) onComplete();
-      } catch (err) {
-        setSubmitError('Не удалось сохранить результаты. Попробуйте ещё раз.');
-        console.warn('Could not submit quiz to DB:', err.message);
-      } finally {
-        setLoading(false);
+    try {
+      const res = await api.submitAdaptiveStep(newHistory);
+      if (res && res.isComplete) {
+        setResultsData(res.result);
         setIsCompleted(true);
+        if (onComplete) onComplete();
+      } else if (res && res.question) {
+        setCurrentQuestion(res.question);
+        setStepNumber(res.step || newHistory.length + 1);
       }
+    } catch (err) {
+      console.warn('Adaptive step submit error:', err.message);
+      setSubmitError('Не удалось обработать ответ. Попробуйте ещё раз.');
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleRestart = () => {
-    setCurrentStep(0);
+    setHistory([]);
+    setCurrentQuestion(null);
+    setStepNumber(1);
     setSelectedOption(null);
     setIsCompleted(false);
-    setAnswers([]);
     setResultsData(null);
     setSubmitError(null);
+    initAdaptiveTest();
   };
 
   if (fetchingQuestions) {
     return (
       <div className="card animate-fade-in" style={{ maxWidth: '850px', margin: '0 auto', textAlign: 'center', padding: '60px 20px' }}>
         <div style={{ width: '48px', height: '48px', borderRadius: '50%', border: '4px solid #f1f5f9', borderTopColor: '#0066ff', margin: '0 auto 16px auto', animation: 'spin 1s linear infinite' }} />
-        <h3 style={{ color: '#0a2540', marginBottom: '8px' }}>Загрузка диагностики...</h3>
-        <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Проверяем ваши результаты и загружаем вопросы</p>
-      </div>
-    );
-  }
-
-  if (questions.length === 0 && !isCompleted) {
-    return (
-      <div className="card animate-fade-in" style={{ maxWidth: '850px', margin: '0 auto', textAlign: 'center', padding: '40px 20px' }}>
-        <IconBrain size={48} color="#64748b" style={{ marginBottom: '16px' }} />
-        <h3 style={{ color: '#0a2540', marginBottom: '8px' }}>Вопросы временно недоступны</h3>
-        <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Не удалось получить список вопросов из базы данных.</p>
+        <h3 style={{ color: '#0a2540', marginBottom: '8px' }}>Анализ адаптивной диагностики...</h3>
+        <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Проверяем ваш цифровой профиль и подбираем персональные уточнения</p>
       </div>
     );
   }
@@ -126,9 +128,20 @@ export const DiagnosticQuiz = ({ onNavigateTab, onComplete }) => {
         <IconCheck size={48} color="#10b981" style={{ marginBottom: '16px' }} />
         <h3 style={{ color: '#0a2540', marginBottom: '8px' }}>Тест завершён!</h3>
         <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '20px' }}>
-          {submitError || 'Результаты сохранены. Обновите страницу чтобы увидеть аналитику.'}
+          {submitError || 'Результаты сохранены в базе данных ваш профиля.'}
         </p>
         <button className="btn btn-primary" onClick={handleRestart}>Пройти ещё раз</button>
+      </div>
+    );
+  }
+
+  if (!currentQuestion) {
+    return (
+      <div className="card animate-fade-in" style={{ maxWidth: '850px', margin: '0 auto', textAlign: 'center', padding: '40px 20px' }}>
+        <IconBrain size={48} color="#64748b" style={{ marginBottom: '16px' }} />
+        <h3 style={{ color: '#0a2540', marginBottom: '8px' }}>Диагностика недоступна</h3>
+        <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Не удалось сформировать вопрос адаптивного теста.</p>
+        <button className="btn btn-primary" style={{ marginTop: '16px' }} onClick={handleRestart}>Попробовать снова</button>
       </div>
     );
   }
@@ -142,24 +155,24 @@ export const DiagnosticQuiz = ({ onNavigateTab, onComplete }) => {
             <IconBrain size={24} color="#0066ff" />
             <div>
               <h3 style={{ margin: 0, fontSize: '1.15rem', color: '#0a2540' }}>
-                Комплексная ИИ-Диагностика Склонностей
+                Адаптивная ИИ-Диагностика Склонностей
               </h3>
               <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
-                Методики Холланда (RIASEC), Климова и Soft Skills • Адаптивный опросник
+                Анализирует ваши ответы в режиме реального времени и формирует профессиональный профиль
               </p>
             </div>
           </div>
           <span className="badge badge-primary">
-            Вопрос {currentStep + 1} из {questions.length}
+            Адаптивный шаг #{stepNumber}
           </span>
         </div>
 
-        {/* Progress Bar */}
+        {/* Dynamic Progress Bar */}
         <div style={styles.track}>
           <div 
             style={{ 
               ...styles.fill, 
-              width: `${((currentStep + 1) / questions.length) * 100}%` 
+              width: `${Math.min(100, (stepNumber / 5) * 100)}%` 
             }} 
           />
         </div>
@@ -167,11 +180,11 @@ export const DiagnosticQuiz = ({ onNavigateTab, onComplete }) => {
 
       {/* Question Card */}
       <div className="card" style={{ padding: '32px' }}>
-        <span style={styles.categoryBadge}>{currentQ?.category || 'Интересы'}</span>
-        <h2 style={styles.questionTitle}>{currentQ?.question}</h2>
+        <span style={styles.categoryBadge}>{currentQuestion.category || 'Уточнение интересов'}</span>
+        <h2 style={styles.questionTitle}>{currentQuestion.question}</h2>
 
         <div style={styles.optionsList}>
-          {currentQ?.options?.map((opt, idx) => {
+          {currentQuestion.options?.map((opt, idx) => {
             const isSelected = selectedOption === idx;
             return (
               <button
@@ -198,18 +211,18 @@ export const DiagnosticQuiz = ({ onNavigateTab, onComplete }) => {
           <button 
             className="btn btn-secondary" 
             onClick={handleRestart}
-            style={{ visibility: currentStep > 0 ? 'visible' : 'hidden' }}
+            style={{ visibility: history.length > 0 ? 'visible' : 'hidden' }}
           >
             <IconRotateCcw size={15} /> Сначала
           </button>
 
           <button
             className="btn btn-primary"
-            onClick={handleNext}
+            onClick={handleNextAdaptiveStep}
             disabled={selectedOption === null || loading}
             style={{ opacity: (selectedOption === null || loading) ? 0.6 : 1 }}
           >
-            {loading ? 'Обработка ИИ...' : currentStep + 1 === questions.length ? 'Завершить и сохранить в БД' : 'Следующий вопрос'}
+            {loading ? 'Анализ ИИ...' : 'Подтвердить и продолжить'}
             <IconArrowRight size={16} />
           </button>
         </div>
@@ -239,10 +252,13 @@ export const DiagnosticResults = ({ results, onNavigateTab, onRestart }) => {
         </button>
       </div>
 
-      {/* TOP Matches */}
-      <h3 style={{ fontSize: '1.2rem', color: '#0a2540', margin: '24px 0 14px 0' }}>
-        🏆 ТОП Рекомендуемых Направлений (Процент Совпадения)
-      </h3>
+      {/* TOP Matches Header (Clean SVG, No Emojis) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '24px 0 14px 0' }}>
+        <IconAward size={22} color="#0066ff" />
+        <h3 style={{ fontSize: '1.2rem', color: '#0a2540', margin: 0 }}>
+          Рекомендуемые Профессиональные Направления
+        </h3>
+      </div>
 
       <div style={styles.topGrid}>
         {results.topDirections?.map((item, idx) => (
@@ -295,7 +311,7 @@ export const DiagnosticResults = ({ results, onNavigateTab, onRestart }) => {
             </h3>
           </div>
 
-          <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {results.strengths?.map((str, idx) => (
               <li key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '0.88rem', color: '#334155' }}>
                 <IconCheck size={18} color="#10b981" style={{ flexShrink: 0, marginTop: '2px' }} />

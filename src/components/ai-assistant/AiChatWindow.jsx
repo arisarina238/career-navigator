@@ -256,7 +256,7 @@ export const AiChatWindow = ({
                 {message.recommendation && message.recommendation.relatedTrial && (
                   <div style={styles.inlineTrialCard}>
                     <div style={styles.trialCardHeader}>
-                      <span style={styles.trialBadge}>✨ РЕКОМЕНДОВАННАЯ ПРОБА</span>
+                      <span style={styles.trialBadge}>РЕКОМЕНДОВАННАЯ ПРОБА</span>
                       {message.recommendation.relatedTrial.employer && (
                         <span style={styles.trialOrg}>
                           {message.recommendation.relatedTrial.employer.companyName}
@@ -273,14 +273,14 @@ export const AiChatWindow = ({
                     <div style={styles.trialMetaRow}>
                       {message.recommendation.relatedTrial.metro && (
                         <span style={styles.trialMetaItem}>
-                          🚇 {message.recommendation.relatedTrial.metro}
+                          <IconMapPin size={12} color="#64748b" /> {message.recommendation.relatedTrial.metro}
                         </span>
                       )}
                       <span style={styles.trialMetaItem}>
-                        📅 {new Date(message.recommendation.relatedTrial.nextDate).toLocaleDateString('ru-RU')}
+                        <IconCalendar size={12} color="#64748b" /> {new Date(message.recommendation.relatedTrial.nextDate).toLocaleDateString('ru-RU')}
                       </span>
                       <span style={styles.trialMetaItem}>
-                        🔥 Мест: {message.recommendation.relatedTrial.availableSlots} из {message.recommendation.relatedTrial.maxSlots}
+                        <IconFlame size={12} color="#ff9f1c" /> Мест: {message.recommendation.relatedTrial.availableSlots} из {message.recommendation.relatedTrial.maxSlots}
                       </span>
                     </div>
 
@@ -343,7 +343,7 @@ export const AiChatWindow = ({
         <div style={styles.activeRecommendationBar}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '1rem' }}>🎯</span>
+              <IconSparkles size={18} color="#0066ff" />
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0066ff', textTransform: 'uppercase' }}>
                   Подобранная профпроба:
@@ -370,7 +370,7 @@ export const AiChatWindow = ({
       {/* Ошибка */}
       {error && (
         <div style={styles.errorBox}>
-          <span>⚠️ {error}</span>
+          <span>{error}</span>
         </div>
       )}
 

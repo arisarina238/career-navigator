@@ -59,6 +59,14 @@ enum ApplicationStatus {
   REJECTED
 }
 
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  INTERVIEW_SCHEDULED
+  COMPLETED
+}
+
 // ----------------------------------------------------
 // ПОЛЬЗОВАТЕЛИ И АУТЕНТИФИКАЦИЯ
 // ----------------------------------------------------
@@ -82,6 +90,7 @@ model User {
 
   sentChatMessages  ChatMessage[]
   trialReviews      TrialReview[]
+  notifications     Notification[]
 
   @@map("users")
 }
@@ -112,6 +121,7 @@ model StudentProfile {
   aiRecommendations  AIRecommendation[]
   parentApprovals    ParentApproval[]
   mentorReviews      MentorReview[]
+  jobInvitations     JobInvitation[]
 
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
@@ -163,6 +173,7 @@ model EmployerProfile {
 
   vacancies      Vacancy[]
   trials         ProTrial[]
+  jobInvitations JobInvitation[]
 
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
@@ -344,8 +355,10 @@ model Vacancy {
   requirements String[]
   location     String?
   isActive     Boolean         @default(true)
+  isDraft      Boolean         @default(false)
 
   applications JobApplication[]
+  jobInvitations JobInvitation[]
 
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
@@ -478,3 +491,43 @@ model MentorReview {
 
   @@map("mentor_reviews")
 }
+
+// ----------------------------------------------------
+// УВЕДОМЛЕНИЯ И ПРИГЛАШЕНИЯ
+// ----------------------------------------------------
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   @default("SYSTEM")
+  title     String
+  message   String   @db.Text
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+model JobInvitation {
+  id            String           @id @default(uuid())
+  employerId    String
+  employer      EmployerProfile  @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  studentId     String
+  student       StudentProfile   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  vacancyId     String?
+  vacancy       Vacancy?         @relation(fields: [vacancyId], references: [id], onDelete: SetNull)
+
+  title         String
+  message       String?          @db.Text
+  interviewDate DateTime?
+  status        InvitationStatus @default(PENDING)
+
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@map("job_invitations")
+}
+

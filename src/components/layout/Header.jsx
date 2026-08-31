@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { api } from '../../services/api';
 import { 
   IconCompass, 
   IconSearch, 
   IconBell, 
   IconShield, 
-  IconChevronDown, 
   IconClose, 
-  IconCheck 
+  IconCheck,
+  IconSparkles
 } from '../common/Icons';
 
 export const Header = ({ 
@@ -19,11 +20,33 @@ export const Header = ({
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [notificationsList, setNotificationsList] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  const notificationsList = [
-    { id: 1, text: 'Цифровой профиль синхронизирован с базой данных СПб', date: 'Сегодня', isNew: true },
-    { id: 2, text: 'Доступны актуальные пробы в лабораториях АИТУ', date: 'Сегодня', isNew: false }
-  ];
+  const fetchNotifications = () => {
+    if (!currentUser) return;
+    api.getNotifications()
+      .then((data) => {
+        if (data && Array.isArray(data.notifications)) {
+          setNotificationsList(data.notifications);
+          setUnreadCount(data.unreadCount || 0);
+        }
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+    const timer = setInterval(fetchNotifications, 15000);
+    return () => clearInterval(timer);
+  }, [currentUser]);
+
+  const handleMarkAllRead = () => {
+    api.markAllNotificationsRead().then(() => {
+      setUnreadCount(0);
+      setNotificationsList((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    }).catch(() => {});
+  };
 
   const getRoleLabel = (role) => {
     switch (role?.toUpperCase()) {
@@ -51,7 +74,7 @@ export const Header = ({
       <div style={styles.topGovBar}>
         <div style={styles.topGovBarInner}>
           <div style={styles.govBrand}>
-            <span style={styles.coatBadge}>🏛️ СПб</span>
+            <span style={styles.coatBadge}>СПб</span>
             <span>Служба занятости r21.spb.ru • Портал «Работа в России»</span>
           </div>
 
@@ -61,7 +84,7 @@ export const Header = ({
               <span>{currentUser?.gosuslugiVerified ? 'ЕСИА Госуслуги (Подтверждено)' : 'ЕСИА Госуслуги'}</span>
             </div>
             <button onClick={onStartTour} style={styles.tourPillBtn}>
-              ⚡ Интерактивный тур
+              <IconSparkles size={13} color="#0066ff" /> Интерактивный тур
             </button>
           </div>
         </div>
@@ -106,27 +129,50 @@ export const Header = ({
               title="Уведомления"
             >
               <IconBell size={18} color="#0a2540" />
-              <span style={styles.bellDot}></span>
+              {unreadCount > 0 && <span style={styles.bellDot} />}
             </button>
 
             {showNotifications && (
               <div style={styles.notifDropdown} className="animate-fade-in">
                 <div style={styles.notifHeader}>
-                  <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0a2540' }}>Уведомления системы</span>
-                  <button onClick={() => setShowNotifications(false)} style={styles.closeBtn}>
-                    <IconClose size={16} color="#64748b" />
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0a2540' }}>Уведомления</span>
+                    {unreadCount > 0 && (
+                      <span style={{ fontSize: '0.72rem', backgroundColor: '#0066ff', color: '#fff', padding: '1px 6px', borderRadius: '10px' }}>
+                        {unreadCount}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {unreadCount > 0 && (
+                      <button onClick={handleMarkAllRead} style={{ fontSize: '0.75rem', color: '#0066ff', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                        Прочитать все
+                      </button>
+                    )}
+                    <button onClick={() => setShowNotifications(false)} style={styles.closeBtn}>
+                      <IconClose size={16} color="#64748b" />
+                    </button>
+                  </div>
                 </div>
                 <div style={styles.notifList}>
-                  {notificationsList.map((n) => (
-                    <div key={n.id} style={{ ...styles.notifItem, backgroundColor: n.isNew ? '#f0f9ff' : '#ffffff' }}>
-                      <IconCheck size={16} color={n.isNew ? '#0066ff' : '#64748b'} />
-                      <div>
-                        <div style={{ fontSize: '0.82rem', color: '#0f172a', fontWeight: n.isNew ? 600 : 400 }}>{n.text}</div>
-                        <span style={{ fontSize: '0.72rem', color: '#64748b' }}>{n.date}</span>
-                      </div>
+                  {notificationsList.length === 0 ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: '0.82rem' }}>
+                      У вас нет новых уведомлений
                     </div>
-                  ))}
+                  ) : (
+                    notificationsList.map((n) => (
+                      <div key={n.id} style={{ ...styles.notifItem, backgroundColor: !n.isRead ? '#f0f9ff' : '#ffffff' }}>
+                        <IconCheck size={16} color={!n.isRead ? '#0066ff' : '#64748b'} />
+                        <div>
+                          <div style={{ fontSize: '0.82rem', color: '#0f172a', fontWeight: !n.isRead ? 600 : 400 }}>{n.title}</div>
+                          <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '2px' }}>{n.message}</div>
+                          <span style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginTop: '4px' }}>
+                            {new Date(n.createdAt).toLocaleDateString('ru-RU')}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}
