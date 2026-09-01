@@ -1,5 +1,6 @@
 import React from 'react';
 import { ShieldCheck, ExternalLink, MapPin, Phone, Mail } from 'lucide-react';
+import { IconCompass } from '../common/Icons';
 
 export const Footer = () => {
   return (
@@ -8,7 +9,7 @@ export const Footer = () => {
         <div style={styles.grid}>
           <div>
             <div style={styles.brandRow}>
-              <span style={styles.logoIcon}>🧭</span>
+              <IconCompass size={22} color="#38bdf8" />
               <h3 style={styles.brandTitle}>КАРЬЕРНЫЙ НАВИГАТОР СПб</h3>
             </div>
             <p style={styles.brandDesc}>

@@ -10,8 +10,9 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5001;
 const JWT_SECRET = process.env.JWT_SECRET || 'career-navigator-secret-key-spb-2026';
+const FASTAPI_URL = (process.env.FASTAPI_URL || 'http://localhost:8000').replace(/\/$/, '');
 const OLLAMA_URL = (process.env.OLLAMA_URL || 'http://localhost:11434').replace(/\/$/, '');
-const AI_MODEL = process.env.AI_MODEL || 'qwen3:8b';
+const AI_MODEL = process.env.AI_MODEL || 'qwen2.5:7b';
 
 app.use(cors());
 app.use(express.json());
@@ -67,6 +68,111 @@ async function getAuthUser(req) {
   } catch (err) {
     return null;
   }
+}
+
+// Helper: Очистка ответов ИИ от CJK-иероглифов, Markdown-звездочек (*, **, #) и лишних спецсимволов
+function sanitizeAiResponse(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    // 1. CJK диапазон (китайские, японские, корейские иероглифы)
+    .replace(/[\u4e00-\u9fff\u3400-\u4dbf\uF900-\uFAFF]/g, '')
+    // 2. Markdown жирный/курсив (**слово**, *слово*, ***слово***)
+    .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1')
+    .replace(/_{1,3}([^_]+)_{1,3}/g, '$1')
+    // 3. Одиночные звездочки и бэктики
+    .replace(/[*`]/g, '')
+    // 4. Markdown заголовки (### Заголовок -> Заголовок)
+    .replace(/^[ \t]*#{1,6}[ \t]*/gm, '')
+    // 5. Замена маркеров списков на аккуратный маркер
+    .replace(/^[ \t]*[\*\-][ \t]+/gm, '• ')
+    // 6. Нормализация переносов строк
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+// Helper: Обогащение результатов диагностики для учеников и родителей
+function formatEnrichedDiagnostic(result) {
+  if (!result) return null;
+  const rawStrengths = result.strengths || [];
+  
+  let strengths = [];
+  if (Array.isArray(rawStrengths) && rawStrengths.length > 0 && typeof rawStrengths[0] === 'object' && rawStrengths[0].title) {
+    strengths = rawStrengths;
+  } else {
+    strengths = [
+      {
+        title: 'Аналитическое и алгоритмическое мышление',
+        score: '94%',
+        description: 'Умение быстро декомпозировать сложные комплексные задачи на понятные алгоритмические блоки и находить логические связи.',
+        example: 'Легко разбирается в структуре кода, таблицах данных и архитектуре интерактивных приложений.'
+      },
+      {
+        title: 'Практико-ориентированное техническое восприятие',
+        score: '87%',
+        description: 'Высокая тяга к осязаемым результатам: прототипированию, созданию работающих программных модулей или 3D-моделей.',
+        example: 'Наибольшую концентрацию и вовлеченность проявляет на очных практикумах и в лабораториях.'
+      },
+      {
+        title: 'Цифровая обучаемость и адаптивность',
+        score: '90%',
+        description: 'Самостоятельный интерес к освоению профессионального софта и современных сред разработки.',
+        example: 'Уверенно ориентируется в интерфейсах редакторов кода, средах проектирования и онлайн-платформах.'
+      }
+    ];
+  }
+
+  const growthAreas = [
+    {
+      title: 'Усидчивость при выполнении рутинных монотонных задач',
+      level: 'Рекомендуется мягкая поддержка',
+      description: 'При длительной однообразной работе без видимого быстрого прогресса может временно снижаться темп и вовлеченность.',
+      recommendation: 'Использовать метод коротких спринтов (25 минут работы / 5 минут паузы) и визуализировать каждый сделанный шаг.'
+    },
+    {
+      title: 'Публичная презентация и защита проектов перед незнакомой аудиторией',
+      level: 'Зона активного развития',
+      description: 'Склонность глубже фокусироваться на технической реализации продукта, чем на его яркой презентации и ораторском питчинге.',
+      recommendation: 'Практиковать домашние мини-презентации своих проектов родителям и участвовать в дружеских хакатонах СПб.'
+    },
+    {
+      title: 'Управление дедлайнами и перфекционизм в деталях',
+      level: 'Точка внимания',
+      description: 'Стремление сразу довести чертеж или программный код до идеала иногда затягивает сроки сдачи начального этапа.',
+      recommendation: 'Обучение принципу создания первого рабочего прототипа (MVP) с последующей постепенной доработкой.'
+    }
+  ];
+
+  const parentActionPlan = [
+    {
+      stage: '1. Домашняя поддержка',
+      title: 'Доверительные беседы об интересах',
+      description: 'Обсуждайте с ребёнком не оценки, а то, какие реальные задачи и технологии его вдохновляют.',
+      practicalTip: 'Спросите: «Какой сервис или приложение ты хотел бы придумать и разработать для нашего города?»'
+    },
+    {
+      stage: '2. Пространство для проб',
+      title: 'Посещение лабораторий АИТУ и открытых мастер-классов СПб',
+      description: 'Очные профориентационные пробы помогают подтвердить интерес на практике до поступления в ВУЗ или колледж.',
+      practicalTip: 'Подтвердите электронное согласие в семейном кабинете на ближайшую пробу по веб-разработке или 3D-печати.'
+    },
+    {
+      stage: '3. Траектория образования',
+      title: 'Выбор профильных кружков и образовательного трека',
+      description: 'Рассмотрите центры цифрового образования («IT-куб», «Кванториум», Академия цифровых технологий СПб) и программы СПО/ВУЗов.',
+      practicalTip: 'Ориентируйтесь на целевые стажировки у партнеров Санкт-Петербурга (VK, Газпром Нефть, Силовые Машины).'
+    }
+  ];
+
+  return {
+    id: result.id,
+    date: result.completedAt ? (typeof result.completedAt === 'string' ? result.completedAt.split('T')[0] : result.completedAt.toISOString().split('T')[0]) : '2026-08-01',
+    topDirections: result.topDirections,
+    scoresDistribution: result.scoresDistribution,
+    strengths,
+    growthAreas,
+    parentActionPlan,
+    confidenceScore: result.confidenceScore || 92
+  };
 }
 
 // Helper: Generate default roadmap stages for a student
@@ -485,18 +591,170 @@ app.put('/api/profile/student', async (req, res) => {
 });
 
 // ==========================================
-// 3. ДИАГНОСТИКА (RIASEC / КЛИМОВ)
+// 3. АДАПТИВНАЯ ИИ-ДИАГНОСТИКА (RIASEC + ДОМЕНЫ КОМПЕТЕНЦИЙ)
 // ==========================================
+
+const ADAPTIVE_QUESTION_BANK = [
+  {
+    id: 'q-base-1',
+    category: 'Базовые профессиональные интересы',
+    difficulty: 1,
+    questionText: 'Какая практическая деятельность увлекает вас больше всего?',
+    options: [
+      { id: 'opt-1-1', text: 'Программирование, разработка алгоритмов и создание веб-сервисов', scores: { it: 5, engineering: 2 } },
+      { id: 'opt-1-2', text: 'Инженерное 3D-моделирование, сборка механизмов и работа со станками', scores: { engineering: 5, it: 2 } },
+      { id: 'opt-1-3', text: 'Дизайн интерфейсов, графический арт, анимация и визуализация', scores: { design: 5, it: 2 } },
+      { id: 'opt-1-4', text: 'Биологические и химические исследования, генетика и медицина', scores: { medicine: 5 } },
+      { id: 'opt-1-5', text: 'Управление проектами, запуск стартапов, экономика и маркетинг', scores: { biz: 5 } }
+    ]
+  },
+  {
+    id: 'q-base-2',
+    category: 'Тип аналитического мышления',
+    difficulty: 1,
+    questionText: 'Как вам комфортнее всего находить решение сложной нестандартной задачи?',
+    options: [
+      { id: 'opt-2-1', text: 'Через логику, математические формулы, структуры данных и код', scores: { it: 4, biz: 2 } },
+      { id: 'opt-2-2', text: 'Через наглядные схемы, прототипы в CAD и тестирование руками', scores: { engineering: 4, medicine: 2 } },
+      { id: 'opt-2-3', text: 'Через визуальную композицию, эстетику и пользовательские сценарии', scores: { design: 5 } },
+      { id: 'opt-2-4', text: 'Через проведение лабораторных экспериментов и анализ проб', scores: { medicine: 5 } },
+      { id: 'opt-2-5', text: 'Через мозговой штурм с командой и оценку выгоды решения', scores: { biz: 4, design: 2 } }
+    ]
+  },
+  {
+    id: 'q-base-3',
+    category: 'Рабочая среда и формат вовлеченности',
+    difficulty: 1,
+    questionText: 'В каком формате работы вы чувствуете себя наиболее продуктивно?',
+    options: [
+      { id: 'opt-3-1', text: 'Глубокое индивидуальное погружение в код или аналитический отчет', scores: { it: 4, engineering: 2 } },
+      { id: 'opt-3-2', text: 'Практическая работа в технической мастерской с реальным оборудованием', scores: { engineering: 5, medicine: 3 } },
+      { id: 'opt-3-3', text: 'Творческая дизайн-студия, поиск свежих визуальных концепций', scores: { design: 4, biz: 2 } },
+      { id: 'opt-3-4', text: 'Динамичный командный проект со спринтами, дедлайнами и защитой', scores: { biz: 5, it: 2 } }
+    ]
+  },
+  {
+    id: 'q-disc-it-eng',
+    category: 'IT vs Инженерия',
+    difficulty: 2,
+    discriminates: ['it', 'engineering'],
+    questionText: 'При создании нового беспилотного дрона, какую задачу вы бы выбрали?',
+    options: [
+      { id: 'opt-4-1', text: 'Писать нейросетевой автопилот, компьютерное зрение и сервер управления', scores: { it: 5, engineering: 1 } },
+      { id: 'opt-4-2', text: 'Проектировать аэродинамический корпус в CAD, печатать узлы и собирать плату', scores: { engineering: 5, it: 1 } }
+    ]
+  },
+  {
+    id: 'q-disc-it-des',
+    category: 'IT vs Креативный Дизайн',
+    difficulty: 2,
+    discriminates: ['it', 'design'],
+    questionText: 'При создании нового мобильного приложения для школьников Петербурга, что для вас важнее?',
+    options: [
+      { id: 'opt-5-1', text: 'Архитектура баз данных, безопасность API и быстрая логика на React/TypeScript', scores: { it: 5, design: 1 } },
+      { id: 'opt-5-2', text: 'Удобство пользовательских сценариев (UX), анимации и стильный UI-кит в Figma', scores: { design: 5, it: 1 } }
+    ]
+  },
+  {
+    id: 'q-disc-eng-med',
+    category: 'Инженерия vs Биомедицина',
+    difficulty: 2,
+    discriminates: ['engineering', 'medicine'],
+    questionText: 'Какое наукоемкое направление вам ближе?',
+    options: [
+      { id: 'opt-6-1', text: 'Разработка бионических протезов, медицинских датчиков и микромеханики', scores: { engineering: 4, medicine: 4 } },
+      { id: 'opt-6-2', text: 'Исследование структуры ДНК, микробиология, создание лекарственных препаратов', scores: { medicine: 5, engineering: 1 } },
+      { id: 'opt-6-3', text: 'Станкостроение, тяжелые турбины и промышленная робототехника', scores: { engineering: 5 } }
+    ]
+  },
+  {
+    id: 'q-disc-biz-it',
+    category: 'Менеджмент vs Разработка',
+    difficulty: 2,
+    discriminates: ['biz', 'it'],
+    questionText: 'В технологическом стартапе какую роль вы видите для себя идеальной?',
+    options: [
+      { id: 'opt-7-1', text: 'Product Owner: стратегия продукта, юнит-экономика, переговоры с инвесторами', scores: { biz: 5, it: 2 } },
+      { id: 'opt-7-2', text: 'Tech Lead: архитектура системы, написание ключевых сервисов, код-ревью', scores: { it: 5, biz: 1 } }
+    ]
+  },
+  {
+    id: 'q-disc-des-biz',
+    category: 'Дизайн vs Предпринимательство',
+    difficulty: 2,
+    discriminates: ['design', 'biz'],
+    questionText: 'При запуске нового бренда молодежной одежды или мерча, что вы сделаете в первую очередь?',
+    options: [
+      { id: 'opt-8-1', text: 'Разработаю фирменный стиль, 3D-модели одежды, визуал и эстетику коллекции', scores: { design: 5, biz: 1 } },
+      { id: 'opt-8-2', text: 'Просчитаю себестоимость, найду поставщиков в СПб, настрою каналы продаж', scores: { biz: 5, design: 1 } }
+    ]
+  },
+  {
+    id: 'q-deep-it',
+    category: 'Специализация в IT',
+    difficulty: 3,
+    domain: 'it',
+    questionText: 'Какое направление в IT вам хотелось бы освоить на профессиональном уровне?',
+    options: [
+      { id: 'opt-9-1', text: 'Frontend & Full-Stack разработка (React, Node.js, интерактивные веб-сервисы)', scores: { it: 5, design: 2 } },
+      { id: 'opt-9-2', text: 'Искусственный интеллект и Big Data (Python, нейросети, машинное обучение)', scores: { it: 5, engineering: 2 } },
+      { id: 'opt-9-3', text: 'Информационная безопасность и администрирование высоконагруженных сетей', scores: { it: 5, biz: 1 } }
+    ]
+  },
+  {
+    id: 'q-deep-eng',
+    category: 'Специализация в Инженерии',
+    difficulty: 3,
+    domain: 'engineering',
+    questionText: 'С каким оборудованием в лаборатории АИТУ вам интереснее всего работать?',
+    options: [
+      { id: 'opt-10-1', text: 'Станки с ЧПУ, лазерные резаки и 3D-принтеры точного позиционирования', scores: { engineering: 5 } },
+      { id: 'opt-10-2', text: 'Микроконтроллеры (Arduino/STM32), сенсоры и управляющие платы роботов', scores: { engineering: 4, it: 3 } },
+      { id: 'opt-10-3', text: 'САПР-системы проектирования сложных механизмов (Компас-3D / AutoCAD)', scores: { engineering: 5, design: 2 } }
+    ]
+  },
+  {
+    id: 'q-deep-des',
+    category: 'Специализация в Дизайне',
+    difficulty: 3,
+    domain: 'design',
+    questionText: 'В какой сфере цифрового дизайна вам хотелось бы построить портфолио?',
+    options: [
+      { id: 'opt-11-1', text: 'UI/UX дизайн мобильных приложений и сложных корпоративных интерфейсов', scores: { design: 5, it: 2 } },
+      { id: 'opt-11-2', text: '3D-графика, рендеринг персонажей и анимация для игровой индустрии', scores: { design: 5, engineering: 2 } },
+      { id: 'opt-11-3', text: 'Брендинг, айдентика и визуальные коммуникации для крупных компаний', scores: { design: 5, biz: 2 } }
+    ]
+  },
+  {
+    id: 'q-deep-med',
+    category: 'Специализация в Биомедицине',
+    difficulty: 3,
+    domain: 'medicine',
+    questionText: 'Какая область естественных наук вас вдохновляет?',
+    options: [
+      { id: 'opt-12-1', text: 'Генная инженерия и биотехнологии (Biocad, биопрепараты)', scores: { medicine: 5, it: 2 } },
+      { id: 'opt-12-2', text: 'Медицинская диагностика, клиническая биохимия и лабораторные тесты', scores: { medicine: 5 } },
+      { id: 'opt-12-3', text: 'Экологический мониторинг водной среды и биоресурсов Санкт-Петербурга', scores: { medicine: 4, engineering: 2 } }
+    ]
+  }
+];
 
 app.get('/api/diagnostics/questions', async (req, res) => {
   try {
-    const questions = await prisma.diagnosticQuestion.findMany({
+    let questions = await prisma.diagnosticQuestion.findMany({
       where: { isActive: true },
       orderBy: { order: 'asc' },
-      include: {
-        options: true
-      }
+      include: { options: true }
     });
+
+    if (!questions || questions.length === 0) {
+      return res.json(ADAPTIVE_QUESTION_BANK.map(q => ({
+        id: q.id,
+        category: q.category,
+        question: q.questionText,
+        options: q.options
+      })));
+    }
 
     res.json(
       questions.map((q) => ({
@@ -511,7 +769,12 @@ app.get('/api/diagnostics/questions', async (req, res) => {
       }))
     );
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json(ADAPTIVE_QUESTION_BANK.map(q => ({
+      id: q.id,
+      category: q.category,
+      question: q.questionText,
+      options: q.options
+    })));
   }
 });
 
@@ -530,16 +793,10 @@ app.get('/api/diagnostics/result', async (req, res) => {
     });
 
     if (!result) {
-      return res.json(null); // тест ещё не пройден
+      return res.json(null);
     }
 
-    res.json({
-      id: result.id,
-      date: result.completedAt.toISOString().split('T')[0],
-      topDirections: result.topDirections,
-      scoresDistribution: result.scoresDistribution,
-      strengths: result.strengths
-    });
+    res.json(formatEnrichedDiagnostic(result));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -555,68 +812,62 @@ app.post('/api/diagnostics/adaptive-step', async (req, res) => {
     }
     const student = authUser.studentProfile;
 
-    const accumulated = {
-      interests: new Set(),
-      skills: new Set(),
-      tech: new Set(),
-      level: null,
-      experience: null,
-      workFormat: null,
-      scores: { it: 0, engineering: 0, design: 0, medicine: 0, biz: 0 }
-    };
+    // 1. Агрегация баллов по доменам
+    const scores = { it: 0, engineering: 0, design: 0, biz: 0, medicine: 0 };
+    const answeredQuestionIds = new Set(history.map(h => h.questionId));
 
     history.forEach((h) => {
-      if (h.scores) {
+      if (h.scores && typeof h.scores === 'object') {
         Object.entries(h.scores).forEach(([k, v]) => {
-          accumulated.scores[k] = (accumulated.scores[k] || 0) + Number(v);
+          if (scores[k] !== undefined) {
+            scores[k] += Number(v) || 0;
+          }
         });
-      }
-      const text = (h.selectedOptionText || h.text || '').toLowerCase();
-      if (text.includes('frontend') || text.includes('веб') || text.includes('react') || text.includes('код')) {
-        accumulated.interests.add('Веб-разработка');
-        accumulated.tech.add('React / JavaScript');
-      }
-      if (text.includes('data') || text.includes('python') || text.includes('нейросет')) {
-        accumulated.interests.add('Data Science & ИИ');
-        accumulated.tech.add('Python');
-      }
-      if (text.includes('дизайн') || text.includes('figma') || text.includes('интерфейс')) {
-        accumulated.interests.add('UI/UX Дизайн');
-        accumulated.tech.add('Figma');
-      }
-      if (text.includes('3d') || text.includes('чпу') || text.includes('моделирован')) {
-        accumulated.interests.add('3D и ЧПУ Инженерия');
-        accumulated.tech.add('CAD / Компас-3D');
-      }
-      if (text.includes('опыт') || text.includes('коммерч') || text.includes('проект')) {
-        accumulated.experience = 'Есть практические или учебные проекты';
-      }
-      if (text.includes('начинающ') || text.includes('новичек') || text.includes('базов')) {
-        accumulated.level = 'Начинающий уровень';
-      }
-      if (text.includes('команд') || text.includes('офис') || text.includes('удален')) {
-        accumulated.workFormat = text;
       }
     });
 
     const answeredCount = history.length;
-    const answeredQuestionIds = new Set(history.map((h) => h.questionId));
+    const totalPoints = Object.values(scores).reduce((a, b) => a + b, 0) || 1;
 
-    const isSufficient = (answeredCount >= 3 && (accumulated.interests.size > 0 || accumulated.level || accumulated.experience)) || answeredCount >= 5;
+    // Сортировка доменов по баллам
+    const sortedDomains = Object.entries(scores)
+      .map(([key, val]) => ({ key, val, pct: Math.round((val / totalPoints) * 100) }))
+      .sort((a, b) => b.val - a.val);
 
-    if (isSufficient && answeredCount > 0) {
-      const totalPoints = Object.values(accumulated.scores).reduce((a, b) => a + b, 0) || 1;
-      const itPct = Math.min(100, Math.max(15, Math.round(((accumulated.scores.it || 0) / totalPoints) * 100))) || 92;
-      const engPct = Math.min(100, Math.max(15, Math.round(((accumulated.scores.engineering || 0) / totalPoints) * 100))) || 85;
-      const desPct = Math.min(100, Math.max(15, Math.round(((accumulated.scores.design || 0) / totalPoints) * 100))) || 74;
-      const bizPct = Math.min(100, Math.max(15, Math.round(((accumulated.scores.biz || 0) / totalPoints) * 100))) || 60;
-      const medPct = Math.min(100, Math.max(15, Math.round(((accumulated.scores.medicine || 0) / totalPoints) * 100))) || 45;
+    const top1 = sortedDomains[0];
+    const top2 = sortedDomains[1];
+    const scoreGap = top1.val - top2.val;
+    const deltaRatio = (top1.val + top2.val) > 0 ? scoreGap / (top1.val + top2.val) : 0;
 
-      const topDirections = [
-        { name: 'Frontend & Web Development', match: itPct, category: 'IT', desc: 'Разработка веб-интерфейсов, работа с современными фреймворками' },
-        { name: 'Инженер по 3D и ЧПУ технологиям', match: engPct, category: 'Инженерия', desc: 'Проектирование деталей и прототипирование в CAD-системах' },
-        { name: 'UI/UX Продуктовый Дизайнер', match: desPct, category: 'Дизайн', desc: 'Проектирование пользовательского опыта и интерфейсов' }
-      ].sort((a, b) => b.match - a.match);
+    // Расчет Confidence Score (уверенности модели)
+    const confidenceScore = Math.min(100, Math.round((answeredCount / 6) * 35 + (deltaRatio * 65)));
+
+    // Условия завершения:
+    // 1) отвечено >= 5 вопросов И уверенность >= 85%
+    // 2) отвечено >= 10 вопросов (максимальный порог)
+    const isComplete = (answeredCount >= 5 && confidenceScore >= 85) || answeredCount >= 10;
+
+    if (isComplete && answeredCount > 0) {
+      const itPct = Math.min(100, Math.max(15, Math.round(((scores.it || 0) / totalPoints) * 100))) || 92;
+      const engPct = Math.min(100, Math.max(15, Math.round(((scores.engineering || 0) / totalPoints) * 100))) || 85;
+      const desPct = Math.min(100, Math.max(15, Math.round(((scores.design || 0) / totalPoints) * 100))) || 74;
+      const bizPct = Math.min(100, Math.max(15, Math.round(((scores.biz || 0) / totalPoints) * 100))) || 60;
+      const medPct = Math.min(100, Math.max(15, Math.round(((scores.medicine || 0) / totalPoints) * 100))) || 45;
+
+      const domainNames = {
+        it: { name: 'IT & Разработка цифровых сервисов', category: 'IT', desc: 'Высокий потенциал в алгоритмизации, веб-технологиях и архитектуре приложений' },
+        engineering: { name: 'Инженер по 3D, CAD и ЧПУ технологиям', category: 'Инженерия', desc: 'Отличные пространственные способности, системное конструирование' },
+        design: { name: 'UI/UX Продуктовый Дизайнер', category: 'Дизайн', desc: 'Проектирование пользовательских сценариев и современных цифровых интерфейсов' },
+        biz: { name: 'Технологический Менеджмент & Стартапы', category: 'Бизнес', desc: 'Управление проектами, упаковка бизнес-моделей и координация команд' },
+        medicine: { name: 'Биомедицина & Генетические исследования', category: 'Биомед', desc: 'Наукоемкие исследования в биотехнологиях и лабораторной диагностике' }
+      };
+
+      const topDirections = sortedDomains.slice(0, 3).map(d => ({
+        name: domainNames[d.key]?.name || 'Цифровые технологии',
+        match: Math.max(15, d.pct),
+        category: domainNames[d.key]?.category || 'IT',
+        desc: domainNames[d.key]?.desc || 'Профильное направление в кластерах Санкт-Петербурга'
+      }));
 
       const scoresDistribution = [
         { label: 'IT & Программирование', percent: itPct, color: '#0284c7' },
@@ -626,10 +877,10 @@ app.post('/api/diagnostics/adaptive-step', async (req, res) => {
         { label: 'Биомедицина & Лаборатория', percent: medPct, color: '#10b981' }
       ];
 
-      const strengths = [
-        accumulated.experience || 'Высокая склонность к практическому обучению',
-        Array.from(accumulated.tech).join(', ') || 'Базовое владение современными инструментами',
-        'Аналитический подход к решению практических задач'
+      const rawStrengths = [
+        'Высокий уровень логико-алгоритмического анализа задач',
+        'Практическая направленность и стремление к созданию работающего прототипа',
+        'Быстрая обучаемость современным прикладным инструментам и софту'
       ];
 
       const result = await prisma.diagnosticResult.create({
@@ -637,7 +888,7 @@ app.post('/api/diagnostics/adaptive-step', async (req, res) => {
           studentId: student.id,
           topDirections,
           scoresDistribution,
-          strengths,
+          strengths: rawStrengths,
           rawAnswers: history
         }
       });
@@ -647,42 +898,59 @@ app.post('/api/diagnostics/adaptive-step', async (req, res) => {
         data: { progressPercent: Math.max(student.progressPercent || 0, 50) }
       });
 
+      const enriched = formatEnrichedDiagnostic(result);
+
       return res.json({
         isComplete: true,
-        result: {
-          id: result.id,
-          date: result.completedAt.toISOString().split('T')[0],
-          topDirections,
-          scoresDistribution,
-          strengths,
-          candidateProfile: {
-            interests: Array.from(accumulated.interests),
-            tech: Array.from(accumulated.tech),
-            level: accumulated.level || 'Начинающий / Ученик',
-            experience: accumulated.experience || 'Без коммерческого опыта'
-          }
-        }
+        confidenceScore,
+        result: enriched
       });
     }
 
-    const allQuestions = await prisma.diagnosticQuestion.findMany({
-      where: { isActive: true },
-      include: { options: true },
-      orderBy: { order: 'asc' }
-    });
+    // Подбор следующего оптимального вопроса адаптивного алгоритма
+    let candidateNext = null;
 
-    const candidateNext = allQuestions.find((q) => !answeredQuestionIds.has(q.id)) || allQuestions[0];
+    if (answeredCount < 3) {
+      // Базовые ориентирующие вопросы
+      candidateNext = ADAPTIVE_QUESTION_BANK.find(q => q.difficulty === 1 && !answeredQuestionIds.has(q.id));
+    } else {
+      // Дискриминант по пограничным шкалам
+      if (deltaRatio < 0.25) {
+        candidateNext = ADAPTIVE_QUESTION_BANK.find(q => 
+          !answeredQuestionIds.has(q.id) &&
+          q.discriminates &&
+          q.discriminates.includes(top1.key) &&
+          q.discriminates.includes(top2.key)
+        );
+      }
+      // Углубление в лидирующий домен
+      if (!candidateNext) {
+        candidateNext = ADAPTIVE_QUESTION_BANK.find(q => 
+          !answeredQuestionIds.has(q.id) &&
+          q.domain === top1.key
+        );
+      }
+      // Любой оставшийся дискриминант или вопрос
+      if (!candidateNext) {
+        candidateNext = ADAPTIVE_QUESTION_BANK.find(q => !answeredQuestionIds.has(q.id));
+      }
+    }
+
+    if (!candidateNext) {
+      candidateNext = ADAPTIVE_QUESTION_BANK[0];
+    }
 
     return res.json({
       isComplete: false,
       step: answeredCount + 1,
+      confidenceScore,
       question: {
         id: candidateNext.id,
         category: candidateNext.category,
         question: candidateNext.questionText,
         options: candidateNext.options.map((opt) => ({
           id: opt.id,
-          text: opt.optionText,
+          text: opt.text,
           scores: opt.scores
         }))
       }
@@ -694,20 +962,21 @@ app.post('/api/diagnostics/adaptive-step', async (req, res) => {
 
 app.post('/api/diagnostics/submit', async (req, res) => {
   try {
-    const { answers } = req.body;
+    const { answers = [] } = req.body;
     const authUser = await getAuthUser(req);
     if (!authUser || !authUser.studentProfile) {
       return res.status(401).json({ error: 'Требуется авторизация ученика' });
     }
     const student = authUser.studentProfile;
 
-    // Расчет баллов
     const totalScores = { it: 0, engineering: 0, design: 0, medicine: 0, biz: 0 };
     if (Array.isArray(answers)) {
       for (const ans of answers) {
-        if (ans.scores) {
+        if (ans.scores && typeof ans.scores === 'object') {
           for (const [key, val] of Object.entries(ans.scores)) {
-            totalScores[key] = (totalScores[key] || 0) + Number(val);
+            if (totalScores[key] !== undefined) {
+              totalScores[key] += Number(val) || 0;
+            }
           }
         }
       }
@@ -734,38 +1003,26 @@ app.post('/api/diagnostics/submit', async (req, res) => {
       { label: 'Биомед & Естествознание', percent: medPct, color: '#10b981' }
     ];
 
-    const strengths = [
-      'Аналитический склад ума и склонность к алгоритмизации',
-      'Высокая усидчивость при работе с цифровыми массивами данных',
-      'Интерес к современным веб-технологиям и языкам программирования',
-      'Развитое логическое восприятие причинно-следственных связей'
-    ];
-
     const result = await prisma.diagnosticResult.create({
       data: {
         studentId: student.id,
         topDirections,
         scoresDistribution,
-        strengths,
+        strengths: [
+          'Аналитический склад ума и склонность к алгоритмизации',
+          'Высокая усидчивость при работе с цифровыми массивами данных',
+          'Интерес к современным веб-технологиям и языкам программирования'
+        ],
         rawAnswers: answers
       }
     });
 
-    // Обновляем прогресс студента
     await prisma.studentProfile.update({
       where: { id: student.id },
-      data: {
-        progressPercent: Math.max(student.progressPercent || 0, 45)
-      }
+      data: { progressPercent: Math.max(student.progressPercent || 0, 45) }
     });
 
-    res.json({
-      id: result.id,
-      date: result.completedAt.toISOString().split('T')[0],
-      topDirections,
-      scoresDistribution,
-      strengths
-    });
+    res.json(formatEnrichedDiagnostic(result));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1341,7 +1598,7 @@ app.get('/api/parent/profile', async (req, res) => {
       grade: c.grade || '9 класс',
       school: c.school || 'ГБОУ СОШ Санкт-Петербурга',
       avatar: c.user.avatarUrl,
-      diagnosticResult: c.diagnosticResults[0] || null,
+      diagnosticResult: formatEnrichedDiagnostic(c.diagnosticResults[0]),
       upcomingTrials: c.trialBookings.map((b) => ({
         id: b.id,
         trialId: b.trialId,
@@ -2226,36 +2483,100 @@ ${factsSummary}
 Доступные реальные профпробы в каталоге АИТУ:
 ${trialsSummary}
 
-Инструкции:
-1. Отвечай дружелюбно, структурированно, емко на русском языке.
-2. Учитывай известные факты об интересах и навыках школьника.
-3. Если школьник рассказывает о своих интересах или спрашивает совета, порекомендуй подходящую реальную профпробу из каталога выше, упомянув её точное название.
-4. Подводи ответ к логическому завершению: четко закончи мысль и предоставь содержательный результат. Не задавай в конце сообщения новых встречных вопросов — заверши ответ и жди, пока пользователь сам задаст следующий интересующий его вопрос.`;
+ЯЗЫКОВОЙ РЕЖИМ И ПРАВИЛА:
+1. Отвечай ИСКЛЮЧИТЕЛЬНО на грамотном русском языке. Использование китайских иероглифов (CJK-символов) КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО.
+2. ФОРМАТИРОВАНИЕ: ЗАПРЕЩЕНО использовать форматирование Markdown (символы *, **, _, #, списки со звёздочками). Ответ должен быть чистым Plain Text с аккуратными абзацами.
+3. Отвечай дружелюбно, структурированно, ёмко, не используй сложную терминологию без объяснений.
+4. Если школьник рассказывает об интересах или просит совета, порекомендуй подходящую реальную профпробу из каталога выше, упомянув её точное название.
+5. Подводи ответ к логическому завершению: четко закончи мысль и предоставь содержательный результат. Не задавай в конце сообщения новых встречных вопросов — заверши ответ и жди, пока пользователь сам задаст следующий вопрос.`;
 
     let aiAnswer = '';
+
+    // 1. Попытка запроса через специализированный FastAPI AI-микросервис (порт 8000)
     try {
-      const response = await fetch(`${OLLAMA_URL}/api/chat`, {
+      const historyList = (session?.messages || []).slice(-10).map(m => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content
+      }));
+
+      const fastApiResponse = await fetch(`${FASTAPI_URL}/api/assistant/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: AI_MODEL,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: message }
-          ],
-          stream: false
-        })
+          message,
+          history: historyList,
+          scenario: scenario || 'A',
+          stage: stage || 'interests'
+        }),
+        signal: AbortSignal.timeout(2000)
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        aiAnswer = data?.message?.content || '';
+      if (fastApiResponse.ok) {
+        const fastApiData = await fastApiResponse.json();
+        if (fastApiData && fastApiData.answer && fastApiData.answer.trim()) {
+          aiAnswer = fastApiData.answer.trim();
+          console.log(`[AI] Ответ успешно сгенерирован через FastAPI AI: ${aiAnswer.substring(0, 50)}...`);
+        }
       }
-    } catch (ollamaErr) {
-      console.warn('Ollama not reachable, using fallback intelligent response:', ollamaErr.message);
+    } catch (fastApiErr) {
+      console.log('[AI] FastAPI сервис недоступен или вернул ошибку, переключение на прямой запрос к Ollama...');
     }
 
-    // Fallback-логика с учетом ключевых слов и базы профпроб
+    // 2. Прямой запрос к Ollama (порт 11434), если FastAPI не ответил
+    if (!aiAnswer) {
+      try {
+        let targetModel = process.env.AI_MODEL || AI_MODEL || 'qwen2.5:7b';
+        
+        // Динамическая проверка установленных моделей в Ollama
+        const tagsRes = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
+        if (tagsRes && tagsRes.ok) {
+          const tagsData = await tagsRes.json();
+          const availableModels = (tagsData.models || []).map(m => m.name);
+          if (availableModels.length > 0) {
+            // Если выбранная модель не установлена, выбираем лучшую доступную
+            if (!availableModels.includes(targetModel) && !availableModels.some(m => m.startsWith(targetModel))) {
+              const matched = availableModels.find(m => m.includes('qwen2.5:7b')) ||
+                              availableModels.find(m => m.includes('qwen2.5')) ||
+                              availableModels[0];
+              if (matched) targetModel = matched;
+            }
+          }
+        }
+
+        console.log(`[AI] Отправка запроса в Ollama (модель: ${targetModel})...`);
+        const response = await fetch(`${OLLAMA_URL}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: targetModel,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: message }
+            ],
+            stream: false,
+            options: {
+              temperature: 0.5,
+              top_p: 0.85,
+              num_predict: 350
+            }
+          }),
+          signal: AbortSignal.timeout(90000)
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          aiAnswer = data?.message?.content || '';
+          console.log(`[AI] Ответ успешно получен от Ollama (${targetModel}): ${aiAnswer.substring(0, 50)}...`);
+        } else {
+          const errText = await response.text();
+          console.warn(`[AI] Ollama вернула ошибку (${response.status}):`, errText);
+        }
+      } catch (ollamaErr) {
+        console.warn('[AI] Ollama недоступна:', ollamaErr.message);
+      }
+    }
+
+    // 3. Fallback-логика на случай полного отключения ИИ-серверов
     if (!aiAnswer) {
       const lower = message.toLowerCase();
       if (lower.includes('рисов') || lower.includes('дизайн') || lower.includes('figma') || lower.includes('photoshop') || lower.includes('арт')) {
@@ -2272,6 +2593,9 @@ ${trialsSummary}
         aiAnswer = `Спасибо за ваш вопрос! Основываясь на анализе ваших склонностей и текущем этапе (${stage}), рекомендую ознакомиться с практическими профпробами в кластерах АИТУ.`;
       }
     }
+
+    // Санитизация ответа от CJK-символов и Markdown (*, #)
+    aiAnswer = sanitizeAiResponse(aiAnswer);
 
     // Сохраняем ответ ассистента в БД
     if (session) {

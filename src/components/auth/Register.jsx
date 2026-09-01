@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { IconUser, IconLock, IconArrowRight, IconShield, IconCareer } from '../common/Icons';
+import { IconUser, IconLock, IconArrowRight, IconShield, IconCareer, IconAlertTriangle } from '../common/Icons';
 import { api } from '../../services/api';
 
 export const Register = ({ onRegister, onGoToLogin }) => {
@@ -196,7 +196,7 @@ export const Register = ({ onRegister, onGoToLogin }) => {
 
           {error && (
             <div style={styles.errorBox}>
-              <span style={{ fontSize: '16px' }}>⚠️</span>
+              <IconAlertTriangle size={16} color="#c2410c" style={{ flexShrink: 0, marginTop: '2px' }} />
               <span>{error}</span>
             </div>
           )}

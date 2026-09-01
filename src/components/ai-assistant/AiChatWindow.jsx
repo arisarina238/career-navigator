@@ -5,7 +5,11 @@ import {
   IconSend,
   IconSparkles,
   IconCheck,
-  IconArrowRight
+  IconArrowRight,
+  IconMapPin,
+  IconCalendar,
+  IconFlame,
+  IconClose
 } from '../common/Icons';
 
 const QUICK_SUGGESTIONS = [
@@ -467,7 +471,7 @@ export const AiAssistantWidget = () => {
               </span>
             </div>
             <button onClick={() => setIsOpen(false)} style={styles.closeBtn} aria-label="Закрыть чат">
-              ✕
+              <IconClose size={16} color="#ffffff" />
             </button>
           </div>
 

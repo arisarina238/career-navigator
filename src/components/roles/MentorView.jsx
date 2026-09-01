@@ -8,7 +8,11 @@ import {
   IconPlus, 
   IconAward, 
   IconSearch, 
-  IconClose
+  IconClose,
+  IconClipboardList,
+  IconUsers,
+  IconBot,
+  IconBarChart
 } from '../common/Icons';
 
 export const MentorView = ({ activeTab, onNavigateTab }) => {
@@ -213,8 +217,9 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
           </div>
 
           <div className="card">
-            <h3 style={{ fontSize: '1.15rem', color: '#0a2540', marginBottom: '12px' }}>
-              📋 Рабочие виджеты наставника: {mentorOrg}
+            <h3 style={{ fontSize: '1.15rem', color: '#0a2540', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <IconClipboardList size={20} color="#0066ff" />
+              <span>Рабочие виджеты наставника: {mentorOrg}</span>
             </h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
               <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
@@ -238,8 +243,9 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
         <div className="card animate-fade-in">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
             <div>
-              <h3 style={{ fontSize: '1.2rem', color: '#0a2540', margin: 0 }}>
-                👥 Реестр учеников и Корректировка ИИ-маршрутов
+              <h3 style={{ fontSize: '1.2rem', color: '#0a2540', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <IconUsers size={20} color="#0066ff" />
+                <span>Реестр учеников и Корректировка ИИ-маршрутов</span>
               </h3>
               <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '2px 0 0 0' }}>
                 Данные синхронизированы с базой данных платформы
@@ -339,8 +345,9 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
         <div className="card animate-fade-in">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <div>
-              <h3 style={{ fontSize: '1.2rem', color: '#0a2540', margin: 0 }}>
-                📍 Назначение групповых выездов на профпробы АИТУ
+              <h3 style={{ fontSize: '1.2rem', color: '#0a2540', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <IconMapPin size={20} color="#ff9f1c" />
+                <span>Назначение групповых выездов на профпробы АИТУ</span>
               </h3>
               <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '2px 0 0 0' }}>
                 Формирование групповых заявок от {mentorOrg}
@@ -382,8 +389,9 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
       {/* PAGE 4: TAB 'assistant' (Аналитика вовлеченности группы) */}
       {activeTab === 'assistant' && (
         <div className="card animate-fade-in">
-          <h3 style={{ fontSize: '1.2rem', color: '#0a2540', marginBottom: '14px' }}>
-            🤖 ИИ-Аналитика вовлеченности группы ({totalStudents} учеников)
+          <h3 style={{ fontSize: '1.2rem', color: '#0a2540', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <IconBot size={20} color="#0066ff" />
+            <span>ИИ-Аналитика вовлеченности группы ({totalStudents} учеников)</span>
           </h3>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '20px' }}>
@@ -431,8 +439,9 @@ export const MentorView = ({ activeTab, onNavigateTab }) => {
       {/* PAGE 5: TAB 'diagnostics' (Сводка ИИ-Диагностики учеников) */}
       {activeTab === 'diagnostics' && (
         <div className="card animate-fade-in">
-          <h3 style={{ fontSize: '1.2rem', color: '#0a2540', marginBottom: '14px' }}>
-            📊 Результаты тестирования Холланда/Климова ({totalStudents} учеников)
+          <h3 style={{ fontSize: '1.2rem', color: '#0a2540', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <IconBarChart size={20} color="#0066ff" />
+            <span>Результаты тестирования Холланда/Климова ({totalStudents} учеников)</span>
           </h3>
           <p style={{ fontSize: '0.88rem', color: '#475569', lineHeight: 1.5, marginBottom: '16px' }}>
             Все результаты зафиксированы в цифровых профилях базы данных Санкт-Петербурга.

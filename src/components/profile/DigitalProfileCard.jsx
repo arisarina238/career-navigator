@@ -8,7 +8,9 @@ import {
   IconCalendar,
   IconEdit,
   IconClose,
-  IconArrowRight
+  IconArrowRight,
+  IconUser,
+  IconChevronRight
 } from '../common/Icons';
 
 export const DigitalProfileCard = ({ currentRole }) => {
@@ -227,10 +229,11 @@ export const DigitalProfileCard = ({ currentRole }) => {
             <span style={{
               marginLeft: '4px',
               transition: 'transform 0.25s ease',
-              transform: bookingsCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
-              display: 'inline-flex'
+              transform: bookingsCollapsed ? 'rotate(0deg)' : 'rotate(90deg)',
+              display: 'inline-flex',
+              alignItems: 'center'
             }}>
-              ▾
+              <IconChevronRight size={14} color="#64748b" />
             </span>
           </button>
 

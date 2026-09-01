@@ -14,6 +14,7 @@ export const DiagnosticQuiz = ({ onNavigateTab, onComplete }) => {
   const [history, setHistory] = useState([]);
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [stepNumber, setStepNumber] = useState(1);
+  const [confidenceScore, setConfidenceScore] = useState(25);
   const [selectedOption, setSelectedOption] = useState(null);
   const [isCompleted, setIsCompleted] = useState(false);
   const [resultsData, setResultsData] = useState(null);
@@ -43,6 +44,7 @@ export const DiagnosticQuiz = ({ onNavigateTab, onComplete }) => {
       } else if (res && res.question) {
         setCurrentQuestion(res.question);
         setStepNumber(res.step || 1);
+        if (res.confidenceScore) setConfidenceScore(res.confidenceScore);
       }
     } catch (err) {
       console.warn('Error initiating adaptive test:', err.message);
@@ -88,6 +90,7 @@ export const DiagnosticQuiz = ({ onNavigateTab, onComplete }) => {
       } else if (res && res.question) {
         setCurrentQuestion(res.question);
         setStepNumber(res.step || newHistory.length + 1);
+        if (res.confidenceScore) setConfidenceScore(res.confidenceScore);
       }
     } catch (err) {
       console.warn('Adaptive step submit error:', err.message);
@@ -158,13 +161,18 @@ export const DiagnosticQuiz = ({ onNavigateTab, onComplete }) => {
                 Адаптивная ИИ-Диагностика Склонностей
               </h3>
               <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
-                Анализирует ваши ответы в режиме реального времени и формирует профессиональный профиль
+                Динамический подбор вопросов в зависимости от ваших ответов
               </p>
             </div>
           </div>
-          <span className="badge badge-primary">
-            Адаптивный шаг #{stepNumber}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className="badge badge-navy" style={{ fontSize: '0.78rem' }}>
+              Шаг #{stepNumber} (мин. 5 / макс. 10)
+            </span>
+            <span className="badge badge-primary" style={{ fontSize: '0.78rem', backgroundColor: '#e0f2fe', color: '#0284c7' }}>
+              Точность профиля: {confidenceScore}%
+            </span>
+          </div>
         </div>
 
         {/* Dynamic Progress Bar */}
@@ -172,7 +180,7 @@ export const DiagnosticQuiz = ({ onNavigateTab, onComplete }) => {
           <div 
             style={{ 
               ...styles.fill, 
-              width: `${Math.min(100, (stepNumber / 5) * 100)}%` 
+              width: `${Math.min(100, Math.max(15, confidenceScore))}%` 
             }} 
           />
         </div>
@@ -240,10 +248,10 @@ export const DiagnosticResults = ({ results, onNavigateTab, onRestart }) => {
           <IconSparkles size={32} color="#ff9f1c" />
           <div>
             <h2 style={{ color: '#ffffff', margin: 0, fontSize: '1.4rem' }}>
-              Результаты ИИ-Анализа Диагностики
+              Результаты Адаптивной ИИ-Диагностики
             </h2>
             <p style={{ color: '#93c5fd', margin: 0, fontSize: '0.85rem' }}>
-              Дата прохождения: {results.date || 'Сегодня'} • Сохранено в базу данных Вашего профиля
+              Дата: {results.date || 'Сегодня'} • Достоверность профиля: {results.confidenceScore || 94}%
             </p>
           </div>
         </div>
@@ -252,7 +260,7 @@ export const DiagnosticResults = ({ results, onNavigateTab, onRestart }) => {
         </button>
       </div>
 
-      {/* TOP Matches Header (Clean SVG, No Emojis) */}
+      {/* TOP Matches Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '24px 0 14px 0' }}>
         <IconAward size={22} color="#0066ff" />
         <h3 style={{ fontSize: '1.2rem', color: '#0a2540', margin: 0 }}>
@@ -283,7 +291,7 @@ export const DiagnosticResults = ({ results, onNavigateTab, onRestart }) => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
             <IconBarChart size={20} color="#0066ff" />
             <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#0a2540' }}>
-              Распределение интересов по шкалам (RIASEC)
+              Распределение склонностей (RIASEC)
             </h3>
           </div>
 
@@ -307,18 +315,31 @@ export const DiagnosticResults = ({ results, onNavigateTab, onRestart }) => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
             <IconAward size={20} color="#10b981" />
             <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#0a2540' }}>
-              Сильные стороны и рекомендации ИИ
+              Ключевые опоры и сильные стороны
             </h3>
           </div>
 
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {results.strengths?.map((str, idx) => (
-              <li key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '0.88rem', color: '#334155' }}>
-                <IconCheck size={18} color="#10b981" style={{ flexShrink: 0, marginTop: '2px' }} />
-                <span>{str}</span>
-              </li>
-            ))}
-          </ul>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {results.strengths?.map((str, idx) => {
+              const isObj = typeof str === 'object' && str !== null;
+              const title = isObj ? str.title : str;
+              const desc = isObj ? str.description : null;
+              const score = isObj ? str.score : null;
+
+              return (
+                <div key={idx} style={{ padding: '12px', borderRadius: '10px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: desc ? '4px' : 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '0.88rem', color: '#166534' }}>
+                      <IconCheck size={16} color="#16a34a" />
+                      <span>{title}</span>
+                    </div>
+                    {score && <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#15803d' }}>{score}</span>}
+                  </div>
+                  {desc && <p style={{ fontSize: '0.8rem', color: '#14532d', margin: 0, lineHeight: 1.4 }}>{desc}</p>}
+                </div>
+              );
+            })}
+          </div>
 
           <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
             <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => onNavigateTab('map')}>

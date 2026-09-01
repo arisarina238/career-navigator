@@ -1,5 +1,15 @@
 import React, { useState } from 'react';
-import { IconUser, IconLock, IconArrowRight, IconShield, IconCareer } from '../common/Icons';
+import { 
+  IconUser, 
+  IconLock, 
+  IconArrowRight, 
+  IconShield, 
+  IconCareer,
+  IconAlertTriangle,
+  IconGraduationCap,
+  IconUsers,
+  IconBuilding
+} from '../common/Icons';
 import { api } from '../../services/api';
 
 export const Login = ({ onLogin, onGoToRegister }) => {
@@ -106,7 +116,7 @@ export const Login = ({ onLogin, onGoToRegister }) => {
 
           {error && (
             <div style={styles.errorBox}>
-              <span style={{ fontSize: '16px' }}>⚠️</span>
+              <IconAlertTriangle size={16} color="#c2410c" style={{ flexShrink: 0, marginTop: '2px' }} />
               <span>{error}</span>
             </div>
           )}
@@ -133,28 +143,32 @@ export const Login = ({ onLogin, onGoToRegister }) => {
               onClick={() => handleFillDemo('alex.smirnov@spb-school214.ru')}
               style={styles.demoBtn}
             >
-              🎓 Школьник
+              <IconGraduationCap size={15} color="#0066ff" />
+              <span>Ученик</span>
             </button>
             <button 
               type="button" 
               onClick={() => handleFillDemo('volkova.elena@aitu.spb.ru')}
               style={styles.demoBtn}
             >
-              👩‍🏫 Наставник
+              <IconUsers size={15} color="#0066ff" />
+              <span>Наставник</span>
             </button>
             <button 
               type="button" 
               onClick={() => handleFillDemo('mikhail.smirnov@mail.ru')}
               style={styles.demoBtn}
             >
-              👨‍👩‍👦 Родитель
+              <IconUsers size={15} color="#0066ff" />
+              <span>Родитель</span>
             </button>
             <button 
               type="button" 
               onClick={() => handleFillDemo('sokolov.id@gazprom-neft.spb.ru')}
               style={styles.demoBtn}
             >
-              🏢 Партнер
+              <IconBuilding size={15} color="#0066ff" />
+              <span>Работодатель</span>
             </button>
           </div>
         </div>

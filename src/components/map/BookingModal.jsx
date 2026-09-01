@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../../services/api';
-import { IconClose, IconCalendar, IconMapPin, IconUser, IconCheck, IconCompass } from '../common/Icons';
+import { IconClose, IconCalendar, IconMapPin, IconUser, IconCheck, IconCompass, IconInfo } from '../common/Icons';
 
 export const BookingModal = ({ trial, isOpen, onClose, onBooked }) => {
   const [booked, setBooked] = useState(false);
@@ -63,8 +63,9 @@ export const BookingModal = ({ trial, isOpen, onClose, onBooked }) => {
               {trial.description}
             </p>
 
-            <div style={styles.noticeBox}>
-              ℹ️ Место фиксируется в вашем <strong>Цифровом профиле Санкт-Петербурга</strong>. Родитель и наставник получат уведомление для подтверждения.
+            <div style={{ ...styles.noticeBox, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <IconInfo size={16} color="#0369a1" style={{ flexShrink: 0 }} />
+              <span>Место фиксируется в вашем <strong>Цифровом профиле Санкт-Петербурга</strong>. Родитель и наставник получат уведомление для подтверждения.</span>
             </div>
 
             <div style={styles.actionsRow}>

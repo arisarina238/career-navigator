@@ -705,8 +705,9 @@ export const EmployerView = ({ activeTab }) => {
                   {c.strengths && c.strengths.length > 0 && (
                     <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                       {c.strengths.slice(0, 2).map((s, idx) => (
-                        <span key={idx} style={{ fontSize: '0.7rem', backgroundColor: '#ecfdf5', color: '#047857', padding: '2px 6px', borderRadius: '6px', fontWeight: 600 }}>
-                          ✓ {s}
+                        <span key={idx} style={{ fontSize: '0.7rem', backgroundColor: '#ecfdf5', color: '#047857', padding: '2px 6px', borderRadius: '6px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <IconCheck size={11} color="#047857" />
+                          <span>{typeof s === 'object' ? s.title : s}</span>
                         </span>
                       ))}
                     </div>
