@@ -5,16 +5,7 @@ API-маршруты ИИ-ассистента.
 в ИИ-модель и получения ответа.
 
 Основной endpoint:
-    POST /api/assistant/chat
-
-Получает:
-    - сообщение пользователя;
-    - историю диалога;
-    - сценарий;
-    - текущий этап карьерной навигации.
-
-Передаёт данные в сервис ИИ и возвращает ответ
-для frontend.
+POST /api/assistant/chat
 """
 
 from fastapi import APIRouter, HTTPException
@@ -50,6 +41,7 @@ async def chat(
             for message in request.history
         ]
 
+
         answer = await generate_answer(
             message=request.message,
             history=history,
@@ -57,11 +49,13 @@ async def chat(
             stage=request.stage
         )
 
+
         return ChatResponse(
             answer=answer,
             scenario=request.scenario,
             stage=request.stage
         )
+
 
     except Exception as error:
 

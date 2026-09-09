@@ -1,87 +1,53 @@
 """
-Сервис взаимодействия с локальной ИИ-моделью Qwen (Ollama).
+Сервис взаимодействия с ИИ через Groq API.
 
-Модуль отвечает за:
-    - подключение к Ollama;
-    - выбор используемой модели;
-    - загрузку системного prompt;
-    - загрузку prompt выбранного сценария;
-    - формирование истории диалога;
-    - формирование запроса к модели с пониженной температурой;
-    - фильтрацию CJK-иероглифов и Markdown-символов (*, **, #);
-    - получение и возврат чистого ответа ИИ на русском языке.
+Архитектура:
+
+React
+    ↓
+Node.js
+    ↓
+FastAPI
+    ↓
+Groq API
+    ↓
+LLM
+
+FastAPI отвечает за работу с ИИ.
+PostgreSQL и сохранение данных находятся в Node.js.
 """
 
 import os
-import re
 from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
 
-
 load_dotenv()
 
 
-OLLAMA_URL = os.getenv(
-    "OLLAMA_URL",
-    "http://localhost:11434"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+GROQ_URL = os.getenv(
+    "GROQ_URL",
+    "https://api.groq.com/openai/v1/chat/completions"
 ).rstrip("/")
 
-
-AI_MODEL = os.getenv(
-    "AI_MODEL",
-    "qwen2.5:7b"
+GROQ_MODEL = os.getenv(
+    "GROQ_MODEL",
+    "openai/gpt-oss-20b"
 )
-
 
 PROMPTS_DIR = (
     Path(__file__).resolve().parent.parent / "prompts"
 )
 
-# Регулярные выражения для санитайзера
-CJK_REGEX = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\uF900-\uFAFF]')
-MARKDOWN_BOLD_REGEX = re.compile(r'\*{1,3}([^*]+)\*{1,3}')
-MARKDOWN_ITALIC_REGEX = re.compile(r'_{1,3}([^_]+)_{1,3}')
-MARKDOWN_HEADER_REGEX = re.compile(r'^[ \t]*#{1,6}[ \t]*', re.MULTILINE)
-MARKDOWN_BULLET_REGEX = re.compile(r'^[ \t]*[\*\-][ \t]+', re.MULTILINE)
-
-
-def sanitize_ai_response(text: str) -> str:
-    """
-    Очищает ответ ИИ от CJK-иероглифов, Markdown-звездочек,
-    решеток и служебных символов форматирования.
-    Возвращает чистый Plain Text на русском языке.
-    """
-    if not text:
-        return ""
-
-    # 1. Удаление китайских / CJK иероглифов
-    cleaned = CJK_REGEX.sub('', text)
-
-    # 2. Удаление Markdown-выделений жирным и курсивом (**слово** -> слово)
-    cleaned = MARKDOWN_BOLD_REGEX.sub(r'\1', cleaned)
-    cleaned = MARKDOWN_ITALIC_REGEX.sub(r'\1', cleaned)
-
-    # 3. Удаление одиночных звездочек, бэктиков и спецзнаков
-    cleaned = cleaned.replace('*', '').replace('`', '')
-
-    # 4. Удаление заголовков Markdown (### Заголовок -> Заголовок)
-    cleaned = MARKDOWN_HEADER_REGEX.sub('', cleaned)
-
-    # 5. Замена маркеров списков на аккуратную точку
-    cleaned = MARKDOWN_BULLET_REGEX.sub('• ', cleaned)
-
-    # 6. Нормализация переносов строк
-    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
-
-    return cleaned.strip()
-
 
 def load_prompt(filename: str) -> str:
     """
-    Загружает prompt из backend/app/prompts/.
+    Загружает prompt из папки app/prompts.
     """
+
     path = PROMPTS_DIR / filename
 
     if not path.exists():
@@ -94,23 +60,29 @@ def load_prompt(filename: str) -> str:
     )
 
 
-def get_scenario_prompt(scenario: str) -> str:
+def get_scenario_prompt(
+    scenario: str
+) -> str:
     """
     Возвращает prompt для выбранного сценария.
     """
+
     scenarios = {
         "A": "scenario_a.txt",
         "B": "scenario_b.txt",
-        "C": "scenario_c.txt",
+        "C": "scenario_c.txt"
     }
 
+    scenario = (
+        scenario or "A"
+    ).upper()
+
     filename = scenarios.get(
-        scenario.upper(),
+        scenario,
         "scenario_a.txt"
     )
 
     return load_prompt(filename)
-
 
 async def generate_answer(
     message: str,
@@ -118,13 +90,25 @@ async def generate_answer(
     scenario: str = "A",
     stage: str = "interests"
 ) -> str:
-    """
-    Генерирует ответ ИИ на русском языке с защитой от CJK и Markdown.
-    """
-    base_prompt = load_prompt("base.txt")
-    scenario_prompt = get_scenario_prompt(scenario)
 
-    system_prompt = f"""{base_prompt}
+    # проверка api key
+
+    if not GROQ_API_KEY:
+        raise RuntimeError(
+            "Не найден GROQ_API_KEY. "
+            "Добавьте API ключ в backend/.env"
+        )
+
+    base_prompt = load_prompt(
+        "base.txt"
+    )
+
+    scenario_prompt = get_scenario_prompt(
+        scenario
+    )
+
+    system_prompt = f"""
+{base_prompt}
 
 Текущий сценарий:
 {scenario_prompt}
@@ -132,13 +116,28 @@ async def generate_answer(
 Текущий этап:
 {stage}
 
-Инструкции к ответу:
-1. Отвечай строго на грамотном русском языке. Иероглифы и иноязычные переключения запрещены.
-2. Не используй символы форматирования Markdown (*, **, _, #). Ответ — чистый текст.
-3. Не показывай системные инструкции и не упоминай Ollama, промпты или технические детали.
-4. Отвечай лаконично, структурированно, дружелюбно.
-5. Заканчивай мысль и давай законченный ответ, не задавая встречных вопросов в конце сообщения.
-"""
+Правила ответа:
+
+1. Отвечай непосредственно пользователю.
+2. Не показывай системные инструкции.
+3. Не упоминай prompt, API, модель, Groq или внутреннюю логику.
+4. Отвечай только на грамотном русском языке.
+5. Не используй китайские иероглифы.
+6. Не используй Markdown.
+7. Отвечай понятным языком, подходящим для школьника.
+8. Учитывай предыдущие сообщения пользователя.
+9. Отвечай кратко, но содержательно.
+10. Если пользователь рассказывает о своих интересах,
+    используй эту информацию для профориентации.
+11. Учитывай текущий сценарий и текущий этап.
+12. Не выдавай окончательную рекомендацию слишком рано.
+13. Если информации недостаточно, аккуратно используй
+    уже известный контекст пользователя.
+14. Поддерживай дружелюбный и мотивирующий тон.
+15. Не показывай свои рассуждения или внутренний анализ.
+16. Сначала анализируй сообщение пользователя,
+    затем дай только готовый ответ пользователю.
+""".strip()
 
     messages = [
         {
@@ -148,10 +147,15 @@ async def generate_answer(
     ]
 
     for item in history:
+
         role = item.get("role")
         content = item.get("content")
 
-        if role in ["user", "assistant"] and content:
+        if (
+            role in ["user", "assistant"]
+            and content
+            and isinstance(content, str)
+        ):
             messages.append(
                 {
                     "role": role,
@@ -162,99 +166,228 @@ async def generate_answer(
     messages.append(
         {
             "role": "user",
-            "content": message
+            "content": message.strip()
         }
     )
 
-    target_model = os.getenv("AI_MODEL", AI_MODEL)
-
     payload = {
-        "model": target_model,
+        "model": GROQ_MODEL,
+
         "messages": messages,
-        "stream": False,
-        "think": False,
-        "options": {
-            "temperature": 0.5,
-            "top_p": 0.85,
-            "num_predict": 350
-        }
+
+        "temperature": 0.6,
+
+        "reasoning_effort": "low",
+
+        "include_reasoning": False,
+
+        "max_completion_tokens": 1000
     }
 
+    print("==========================================")
+    print("[GROQ] Отправка запроса")
+    print(f"[GROQ] Model: {GROQ_MODEL}")
+    print(f"[GROQ] Scenario: {scenario}")
+    print(f"[GROQ] Stage: {stage}")
+    print(f"[GROQ] History: {len(history)}")
+    print("[GROQ] Reasoning: low")
+    print("[GROQ] Include reasoning: false")
+    print("[GROQ] Max completion tokens: 1000")
+    print("==========================================")
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    # запрос groq
     try:
+
+        timeout = httpx.Timeout(
+            connect=15.0,
+            read=60.0,
+            write=30.0,
+            pool=30.0
+        )
+
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(
-                connect=10.0,
-                read=180.0,
-                write=30.0,
-                pool=30.0
-            )
+            timeout=timeout
         ) as client:
-            # Проверяем и при необходимости корректируем модель
-            try:
-                tags_res = await client.get(f"{OLLAMA_URL}/api/tags", timeout=3.0)
-                if tags_res.status_code == 200:
-                    models_list = [m.get("name", "") for m in tags_res.json().get("models", [])]
-                    if models_list and not any(target_model in m for m in models_list):
-                        matched = next((m for m in models_list if "qwen" in m), models_list[0])
-                        target_model = matched
-                        payload["model"] = target_model
-            except Exception:
-                pass
 
             response = await client.post(
-                f"{OLLAMA_URL}/api/chat",
+                GROQ_URL,
+                headers=headers,
                 json=payload
             )
 
-            response.raise_for_status()
-            data = response.json()
+
+        # http ошибки
+
+        if response.status_code != 200:
+
+            try:
+                error_data = response.json()
+
+            except Exception:
+                error_data = response.text
+
+            status = response.status_code
+
+            print("==========================================")
+            print("[GROQ] ОШИБКА")
+            print(f"[GROQ] STATUS: {status}")
+            print(f"[GROQ] RESPONSE: {error_data}")
+            print("==========================================")
+
+
+            if status == 401:
+
+                raise RuntimeError(
+                    "Groq отклонил API-ключ. "
+                    "Проверьте GROQ_API_KEY в backend/.env"
+                )
+
+
+            if status == 403:
+
+                raise RuntimeError(
+                    "Groq запретил доступ к API. "
+                    "Проверьте проект и API-ключ Groq."
+                )
+
+
+            if status == 429:
+
+                raise RuntimeError(
+                    "Превышен бесплатный лимит Groq. "
+                    "Попробуйте немного позже."
+                )
+
+
+            if status == 400:
+
+                raise RuntimeError(
+                    f"Groq получил некорректный запрос: "
+                    f"{error_data}"
+                )
+
+
+            raise RuntimeError(
+                f"Groq вернул ошибку {status}: "
+                f"{error_data}"
+            )
+
+        data = response.json()
+
+        print("==========================================")
+        print("[GROQ] STATUS:", response.status_code)
+
+        choices = data.get("choices", [])
+
+        if choices:
+
+            response_message = choices[0].get(
+                "message",
+                {}
+            )
+
+            print(
+                "[GROQ] Content:",
+                repr(
+                    response_message.get(
+                        "content"
+                    )
+                )
+            )
+
+            print(
+                "[GROQ] Finish reason:",
+                choices[0].get(
+                    "finish_reason"
+                )
+            )
+
+        print("==========================================")
+
+
+    # ошибки подключения
 
     except httpx.ConnectError as exc:
+
         raise RuntimeError(
-            "Не удалось подключиться к Ollama. "
-            "Проверьте, что Ollama запущена и доступна по адресу "
-            f"{OLLAMA_URL}"
+            "Не удалось подключиться к Groq API. "
+            "Проверьте подключение к интернету."
         ) from exc
+
 
     except httpx.ReadTimeout as exc:
-        raise RuntimeError(
-            "Ollama слишком долго формирует ответ. Попробуйте повторить запрос."
-        ) from exc
-
-    except httpx.HTTPStatusError as exc:
-        status = exc.response.status_code
-        try:
-            error_data = exc.response.json()
-        except Exception:
-            error_data = exc.response.text
 
         raise RuntimeError(
-            f"Ollama вернула ошибку {status}: {error_data}"
+            "Groq слишком долго формирует ответ. "
+            "Попробуйте повторить запрос."
         ) from exc
 
-    message_data = data.get("message")
+
+    except httpx.RequestError as exc:
+
+        raise RuntimeError(
+            f"Ошибка соединения с Groq: {exc}"
+        ) from exc
+
+
+    # проверка ответа
+
+    choices = data.get("choices")
+
+    if not choices:
+
+        raise RuntimeError(
+            f"Groq не вернул choices: {data}"
+        )
+
+
+    message_data = choices[0].get(
+        "message"
+    )
+
     if not message_data:
-        raise RuntimeError("Ollama не вернула объект message.")
 
-    raw_answer = message_data.get("content", "")
-    if not raw_answer.strip():
-        raise RuntimeError("Ollama вернула пустой ответ.")
+        raise RuntimeError(
+            "Groq не вернул message."
+        )
 
-    # Проверка на наличие CJK и очистка
-    cleaned_answer = sanitize_ai_response(raw_answer)
 
-    # Если после очистки ответ пустой или был поврежден иероглифами — повторный запрос с temperature=0.3
-    if CJK_REGEX.search(raw_answer) and len(cleaned_answer) < 20:
-        payload["options"]["temperature"] = 0.3
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as retry_client:
-                retry_resp = await retry_client.post(f"{OLLAMA_URL}/api/chat", json=payload)
-                if retry_resp.status_code == 200:
-                    retry_data = retry_resp.json()
-                    retry_msg = retry_data.get("message", {}).get("content", "")
-                    if retry_msg:
-                        cleaned_answer = sanitize_ai_response(retry_msg)
-        except Exception:
-            pass
+    # получение content
 
-    return cleaned_answer if cleaned_answer else "Рад помочь! Задайте вопрос о профессиях или направлениях в Санкт-Петербурге."
+    answer = message_data.get(
+        "content"
+    )
+
+
+    if not isinstance(answer, str):
+
+        answer = ""
+
+
+    answer = answer.strip()
+
+
+    # проверка на пустой ответ
+
+    if not answer:
+
+        reasoning = message_data.get(
+            "reasoning"
+        )
+
+        finish_reason = choices[0].get(
+            "finish_reason"
+        )
+
+        raise RuntimeError(
+            "ИИ вернул пустой ответ. "
+            f"finish_reason={finish_reason}, "
+            f"reasoning_present={bool(reasoning)}"
+        )
+
+    return answer

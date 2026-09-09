@@ -10,9 +10,9 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5001;
 const JWT_SECRET = process.env.JWT_SECRET || 'career-navigator-secret-key-spb-2026';
-const FASTAPI_URL = (process.env.FASTAPI_URL || 'http://localhost:8000').replace(/\/$/, '');
-const OLLAMA_URL = (process.env.OLLAMA_URL || 'http://localhost:11434').replace(/\/$/, '');
-const AI_MODEL = process.env.AI_MODEL || 'qwen2.5:7b';
+const FASTAPI_URL = (
+  process.env.FASTAPI_URL || 'http://localhost:8000'
+).replace(/\/$/, '');
 
 app.use(cors());
 app.use(express.json());
@@ -2378,67 +2378,152 @@ function findMatchingTrial(text, aiAnswer, trials) {
 }
 
 // 10.1. Отправка сообщения в чат с ИИ
+
 app.post('/api/assistant/chat', async (req, res) => {
   try {
-    const { message, scenario = 'A', stage = 'interests' } = req.body;
-    const authUser = await getAuthUser(req);
-    if (!authUser || !authUser.studentProfile) {
-      return res.status(401).json({ error: 'Требуется авторизация ученика' });
+    const {
+      message,
+      scenario = 'A',
+      stage = 'interests',
+      sessionId: requestedSessionId = null
+    } = req.body;
+
+    // ------------------------------------------------------
+    // Проверка входных данных
+    // ------------------------------------------------------
+
+    if (!message || !message.trim()) {
+      return res.status(400).json({
+        error: 'Сообщение не может быть пустым'
+      });
     }
+
+    // ------------------------------------------------------
+    // Проверяем авторизацию
+    // ------------------------------------------------------
+
+    const authUser = await getAuthUser(req);
+
+    if (!authUser || !authUser.studentProfile) {
+      return res.status(401).json({
+        error: 'Требуется авторизация ученика'
+      });
+    }
+
     const student = authUser.studentProfile;
 
-    let sessionId = req.body.sessionId;
+    // ------------------------------------------------------
+    // Нормализуем сценарий
+    // ------------------------------------------------------
+
+    const normalizedScenario =
+      ['A', 'B', 'C'].includes(
+        String(scenario).toUpperCase()
+      )
+        ? String(scenario).toUpperCase()
+        : 'A';
+
+    const normalizedStage =
+      stage || 'interests';
+
+    // ------------------------------------------------------
+    // Получаем существующую сессию
+    // ------------------------------------------------------
+
     let session = null;
 
-    if (sessionId) {
-      session = await prisma.chatSession.findUnique({
-        where: { id: sessionId },
-        include: { messages: { orderBy: { createdAt: 'asc' } } }
-      });
-    }
-    if (!session) {
-      // Ищем последнюю активную сессию студента или создаем новую
+    if (requestedSessionId) {
       session = await prisma.chatSession.findFirst({
-        where: { studentId: student.id },
-        orderBy: { updatedAt: 'desc' },
-        include: { messages: { orderBy: { createdAt: 'asc' } } }
+        where: {
+          id: requestedSessionId,
+          studentId: student.id
+        },
+        include: {
+          messages: {
+            orderBy: {
+              createdAt: 'asc'
+            }
+          }
+        }
       });
-
-      if (!session) {
-        session = await prisma.chatSession.create({
-          data: {
-            studentId: student.id,
-            scenario: scenario === 'B' ? 'B' : scenario === 'C' ? 'C' : 'A',
-            currentStage: stage
-          },
-          include: { messages: true }
-        });
-      }
-      sessionId = session.id;
     }
 
+    // ------------------------------------------------------
+    // Если сессия не передана — ищем последнюю
+    // ------------------------------------------------------
+
+    if (!session) {
+      session = await prisma.chatSession.findFirst({
+        where: {
+          studentId: student.id
+        },
+        orderBy: {
+          updatedAt: 'desc'
+        },
+        include: {
+          messages: {
+            orderBy: {
+              createdAt: 'asc'
+            }
+          }
+        }
+      });
+    }
+
+    // ------------------------------------------------------
+    // Если сессии нет — создаём новую
+    // ------------------------------------------------------
+
+    if (!session) {
+      session = await prisma.chatSession.create({
+        data: {
+          studentId: student.id,
+          scenario: normalizedScenario,
+          currentStage: normalizedStage
+        },
+        include: {
+          messages: {
+            orderBy: {
+              createdAt: 'asc'
+            }
+          }
+        }
+      });
+    }
+
+    // ------------------------------------------------------
     // Сохраняем сообщение пользователя в БД
+    // ------------------------------------------------------
+
     await prisma.chatMessage.create({
       data: {
         sessionId: session.id,
         userId: student.userId,
         role: 'user',
-        content: message
+        content: message.trim()
       }
     });
 
-    // ----------------------------------------------------
-    // Извлечение и сохранение фактов (AIUserFact)
-    // ----------------------------------------------------
-    const extracted = extractFactsFromText(message);
+    // ------------------------------------------------------
+    // Извлекаем факты пользователя
+    // ------------------------------------------------------
+
+    const extracted = extractFactsFromText(
+      message.trim()
+    );
+
     for (const item of extracted) {
-      const existingFact = await prisma.aIUserFact.findFirst({
-        where: {
-          studentId: student.id,
-          category: item.category,
-          fact: { contains: item.fact.substring(0, 15) }
-        }
-      });
+      const existingFact =
+        await prisma.aIUserFact.findFirst({
+          where: {
+            studentId: student.id,
+            category: item.category,
+            fact: {
+              contains: item.fact.substring(0, 15)
+            }
+          }
+        });
+
       if (!existingFact) {
         await prisma.aIUserFact.create({
           data: {
@@ -2452,230 +2537,397 @@ app.post('/api/assistant/chat', async (req, res) => {
       }
     }
 
-    // Загружаем память ИИ (AIUserFact) и список реальных профпроб (ProTrial)
-    const existingFacts = await prisma.aIUserFact.findMany({
-      where: { studentId: student.id },
-      orderBy: { importance: 'desc' }
-    });
+    // ------------------------------------------------------
+    // Загружаем факты пользователя
+    // ------------------------------------------------------
 
-    const availableTrials = await prisma.proTrial.findMany({
-      include: {
-        employer: true,
-        zone: true
-      }
-    });
+    const existingFacts =
+      await prisma.aIUserFact.findMany({
+        where: {
+          studentId: student.id
+        },
+        orderBy: {
+          importance: 'desc'
+        }
+      });
 
-    const factsSummary = existingFacts.length > 0
-      ? existingFacts.map(f => `• [${f.category}] ${f.fact}`).join('\n')
-      : 'Факты о пользователе пока не накоплены.';
+    // ------------------------------------------------------
+    // Загружаем доступные профпробы
+    // ------------------------------------------------------
 
-    const trialsSummary = availableTrials.map(t => 
-      `• "${t.title}" (ID: ${t.id}, Направление: ${t.zone?.name || 'АИТУ'}, Свободно мест: ${t.availableSlots}, Организатор: ${t.employer?.companyName || 'АИТУ'})`
-    ).join('\n');
+    const availableTrials =
+      await prisma.proTrial.findMany({
+        include: {
+          employer: true,
+          zone: true
+        }
+      });
 
-    // Формируем системный промпт с учетом памяти ИИ и доступных проб
-    const systemPrompt = `Ты — ИИ-ассистент Карьерного Навигатора СПб. Помогаешь школьникам и абитуриентам выбрать профессию в Санкт-Петербурге.
-Сценарий: ${scenario}, Этап: ${stage}.
+    // ------------------------------------------------------
+    // Формируем историю диалога
+    //
+    // Берём последние 10 сообщений.
+    // ------------------------------------------------------
 
-Память ИИ о школьнике:
-${factsSummary}
+    const historyList =
+      (session.messages || [])
+        .slice(-10)
+        .map((item) => ({
+          role:
+            item.role === 'assistant'
+              ? 'assistant'
+              : 'user',
 
-Доступные реальные профпробы в каталоге АИТУ:
-${trialsSummary}
+          content: item.content
+        }));
 
-ЯЗЫКОВОЙ РЕЖИМ И ПРАВИЛА:
-1. Отвечай ИСКЛЮЧИТЕЛЬНО на грамотном русском языке. Использование китайских иероглифов (CJK-символов) КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО.
-2. ФОРМАТИРОВАНИЕ: ЗАПРЕЩЕНО использовать форматирование Markdown (символы *, **, _, #, списки со звёздочками). Ответ должен быть чистым Plain Text с аккуратными абзацами.
-3. Отвечай дружелюбно, структурированно, ёмко, не используй сложную терминологию без объяснений.
-4. Если школьник рассказывает об интересах или просит совета, порекомендуй подходящую реальную профпробу из каталога выше, упомянув её точное название.
-5. Подводи ответ к логическому завершению: четко закончи мысль и предоставь содержательный результат. Не задавай в конце сообщения новых встречных вопросов — заверши ответ и жди, пока пользователь сам задаст следующий вопрос.`;
+    // ------------------------------------------------------
+    // ВЫЗОВ FASTAPI
+    //
+    // Node.js НЕ обращается к Ollama.
+    //
+    // FastAPI:
+    //   ↓
+    // base.txt
+    //   ↓
+    // scenario_a/b/c.txt
+    //   ↓
+    // OpenRouter
+    //   ↓
+    // Gemma 4
+    // ------------------------------------------------------
 
     let aiAnswer = '';
 
-    // 1. Попытка запроса через специализированный FastAPI AI-микросервис (порт 8000)
     try {
-      const historyList = (session?.messages || []).slice(-10).map(m => ({
-        role: m.role === 'assistant' ? 'assistant' : 'user',
-        content: m.content
-      }));
+      console.log(
+        '=========================================='
+      );
 
-      const fastApiResponse = await fetch(`${FASTAPI_URL}/api/assistant/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message,
-          history: historyList,
-          scenario: scenario || 'A',
-          stage: stage || 'interests'
-        }),
-        signal: AbortSignal.timeout(2000)
-      });
+      console.log(
+        '[AI] Отправка запроса в FastAPI'
+      );
 
-      if (fastApiResponse.ok) {
-        const fastApiData = await fastApiResponse.json();
-        if (fastApiData && fastApiData.answer && fastApiData.answer.trim()) {
-          aiAnswer = fastApiData.answer.trim();
-          console.log(`[AI] Ответ успешно сгенерирован через FastAPI AI: ${aiAnswer.substring(0, 50)}...`);
-        }
-      }
-    } catch (fastApiErr) {
-      console.log('[AI] FastAPI сервис недоступен или вернул ошибку, переключение на прямой запрос к Ollama...');
-    }
+      console.log(
+        `[AI] URL: ${FASTAPI_URL}/api/assistant/chat`
+      );
 
-    // 2. Прямой запрос к Ollama (порт 11434), если FastAPI не ответил
-    if (!aiAnswer) {
-      try {
-        let targetModel = process.env.AI_MODEL || AI_MODEL || 'qwen2.5:7b';
-        
-        // Динамическая проверка установленных моделей в Ollama
-        const tagsRes = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
-        if (tagsRes && tagsRes.ok) {
-          const tagsData = await tagsRes.json();
-          const availableModels = (tagsData.models || []).map(m => m.name);
-          if (availableModels.length > 0) {
-            // Если выбранная модель не установлена, выбираем лучшую доступную
-            if (!availableModels.includes(targetModel) && !availableModels.some(m => m.startsWith(targetModel))) {
-              const matched = availableModels.find(m => m.includes('qwen2.5:7b')) ||
-                              availableModels.find(m => m.includes('qwen2.5')) ||
-                              availableModels[0];
-              if (matched) targetModel = matched;
-            }
-          }
-        }
+      console.log(
+        `[AI] Scenario: ${normalizedScenario}`
+      );
 
-        console.log(`[AI] Отправка запроса в Ollama (модель: ${targetModel})...`);
-        const response = await fetch(`${OLLAMA_URL}/api/chat`, {
+      console.log(
+        `[AI] Stage: ${normalizedStage}`
+      );
+
+      console.log(
+        `[AI] History messages: ${historyList.length}`
+      );
+
+      console.log(
+        '=========================================='
+      );
+
+      const fastApiResponse = await fetch(
+        `${FASTAPI_URL}/api/assistant/chat`,
+        {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+
+          headers: {
+            'Content-Type': 'application/json'
+          },
+
           body: JSON.stringify({
-            model: targetModel,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: message }
-            ],
-            stream: false,
-            options: {
-              temperature: 0.5,
-              top_p: 0.85,
-              num_predict: 350
-            }
+            message: message.trim(),
+
+            history: historyList,
+
+            scenario: normalizedScenario,
+
+            stage: normalizedStage
           }),
-          signal: AbortSignal.timeout(90000)
-        });
 
-        if (response.ok) {
-          const data = await response.json();
-          aiAnswer = data?.message?.content || '';
-          console.log(`[AI] Ответ успешно получен от Ollama (${targetModel}): ${aiAnswer.substring(0, 50)}...`);
-        } else {
-          const errText = await response.text();
-          console.warn(`[AI] Ollama вернула ошибку (${response.status}):`, errText);
+          // ------------------------------------------------
+          // Раньше здесь было 2000 мс.
+          //
+          // Это слишком мало для OpenRouter.
+          //
+          // Теперь ждём до 120 секунд.
+          // ------------------------------------------------
+
+          signal: AbortSignal.timeout(120000)
         }
-      } catch (ollamaErr) {
-        console.warn('[AI] Ollama недоступна:', ollamaErr.message);
+      );
+
+      // ----------------------------------------------------
+      // Получаем JSON от FastAPI
+      // ----------------------------------------------------
+
+      const fastApiData =
+        await fastApiResponse
+          .json()
+          .catch(() => ({}));
+
+      // ----------------------------------------------------
+      // Проверяем HTTP статус
+      // ----------------------------------------------------
+
+      if (!fastApiResponse.ok) {
+        console.error(
+          '[AI] FastAPI вернул ошибку:',
+          fastApiData
+        );
+
+        throw new Error(
+          fastApiData.detail ||
+          fastApiData.error ||
+          `FastAPI HTTP ${fastApiResponse.status}`
+        );
       }
-    }
 
-    // 3. Fallback-логика на случай полного отключения ИИ-серверов
-    if (!aiAnswer) {
-      const lower = message.toLowerCase();
-      if (lower.includes('рисов') || lower.includes('дизайн') || lower.includes('figma') || lower.includes('photoshop') || lower.includes('арт')) {
-        aiAnswer = 'Замечательно! У тебя отличная база для креативных индустрий. На основе твоих навыков рекомендую профессиональную пробу «Создание бренда и UI-кита сервиса» в лаборатории АИТУ. На ней ты сможешь поработать над реальным кейсом и собрать прототип в Figma.';
-      } else if (lower.includes('react') || lower.includes('веб') || lower.includes('программир') || lower.includes('код') || lower.includes('сайт')) {
-        aiAnswer = 'Отличный выбор! Веб-разработка сейчас на пике востребованности. Рекомендую очную пробу «Разработка веб-приложения на React» в АИТУ СПб (м. Технологический институт).';
-      } else if (lower.includes('python') || lower.includes('data') || lower.includes('нейросет') || lower.includes('ml')) {
-        aiAnswer = 'Здорово! В аналитике данных и машинном обучении большой потенциал. Тебе отлично подойдет практикум «Аналитика данных и Обучение ML-модели» в АИТУ СПб.';
-      } else if (lower.includes('3d') || lower.includes('моделирован') || lower.includes('чпу') || lower.includes('робот')) {
-        aiAnswer = 'Прекрасно! Инженерное направление очень востребовано. Попробуй очный практикум «3D-моделирование и печать деталей на ЧПУ» в Инженерном корпусе АИТУ.';
-      } else if (lower.includes('сценар')) {
-        aiAnswer = 'В Карьерном Навигаторе действуют 3 сценария: Сценарий А (первичное самоопределение), Сценарий Б (погружение в IT и инженерию) и Сценарий В (подготовка к стажировкам и работе с партнерами).';
-      } else {
-        aiAnswer = `Спасибо за ваш вопрос! Основываясь на анализе ваших склонностей и текущем этапе (${stage}), рекомендую ознакомиться с практическими профпробами в кластерах АИТУ.`;
+      // ----------------------------------------------------
+      // Проверяем ответ
+      // ----------------------------------------------------
+
+      if (
+        !fastApiData.answer ||
+        typeof fastApiData.answer !== 'string' ||
+        !fastApiData.answer.trim()
+      ) {
+        throw new Error(
+          'FastAPI вернул пустой ответ'
+        );
       }
-    }
 
-    // Санитизация ответа от CJK-символов и Markdown (*, #)
-    aiAnswer = sanitizeAiResponse(aiAnswer);
+      aiAnswer =
+        fastApiData.answer.trim();
 
-    // Сохраняем ответ ассистента в БД
-    if (session) {
-      await prisma.chatMessage.create({
-        data: {
-          sessionId: session.id,
-          role: 'assistant',
-          content: aiAnswer
-        }
+      console.log(
+        '[AI] Ответ успешно получен от FastAPI/OpenRouter'
+      );
+
+      console.log(
+        `[AI] Ответ: ${aiAnswer.substring(0, 150)}...`
+      );
+
+    } catch (fastApiError) {
+      console.error(
+        '=========================================='
+      );
+
+      console.error(
+        '[AI] ОШИБКА FASTAPI / OPENROUTER'
+      );
+
+      console.error(
+        fastApiError
+      );
+
+      console.error(
+        '=========================================='
+      );
+
+      return res.status(502).json({
+        error:
+          'Не удалось получить ответ от ИИ через OpenRouter.',
+
+        details:
+          fastApiError.message
       });
     }
 
-    // ----------------------------------------------------
-    // Создание / связывание рекомендации (AIRecommendation -> ProTrial)
-    // ----------------------------------------------------
-    let matchedTrial = findMatchingTrial(message, aiAnswer, availableTrials);
+    // ------------------------------------------------------
+    // Очищаем ответ ИИ
+    // ------------------------------------------------------
+
+    aiAnswer = sanitizeAiResponse(
+      aiAnswer
+    );
+
+    // ------------------------------------------------------
+    // Сохраняем ответ ИИ в БД
+    // ------------------------------------------------------
+
+    await prisma.chatMessage.create({
+      data: {
+        sessionId: session.id,
+        role: 'assistant',
+        content: aiAnswer
+      }
+    });
+
+    // ------------------------------------------------------
+    // Ищем подходящую профпробу
+    // ------------------------------------------------------
+
+    const matchedTrial =
+      findMatchingTrial(
+        message,
+        aiAnswer,
+        availableTrials
+      );
+
+    // ------------------------------------------------------
+    // Переменная рекомендации
+    // ------------------------------------------------------
+
     let recommendation = null;
 
-    // Проверяем, не записан ли уже студент на эту пробу
-    const alreadyBooked = matchedTrial
-      ? await prisma.trialBooking.findFirst({
+    // ------------------------------------------------------
+    // Проверяем, записан ли пользователь
+    // ------------------------------------------------------
+
+    const alreadyBooked =
+      matchedTrial
+        ? await prisma.trialBooking.findFirst({
+            where: {
+              studentId: student.id,
+              trialId: matchedTrial.id
+            }
+          })
+        : null;
+
+    // ------------------------------------------------------
+    // Создаём рекомендацию
+    // ------------------------------------------------------
+
+    if (
+      matchedTrial &&
+      !alreadyBooked
+    ) {
+      const existingRec =
+        await prisma.aIRecommendation.findFirst({
           where: {
             studentId: student.id,
-            trialId: matchedTrial.id
-          }
-        })
-      : null;
 
-    if (matchedTrial && !alreadyBooked) {
-      const existingRec = await prisma.aIRecommendation.findFirst({
-        where: {
-          studentId: student.id,
-          relatedTrialId: matchedTrial.id,
-          status: 'ACTIVE'
-        },
-        include: {
-          relatedTrial: {
-            include: { employer: true, zone: true }
+            relatedTrialId:
+              matchedTrial.id,
+
+            status: 'ACTIVE'
+          },
+
+          include: {
+            relatedTrial: {
+              include: {
+                employer: true,
+                zone: true
+              }
+            }
           }
-        }
-      });
+        });
 
       if (existingRec) {
         recommendation = existingRec;
+
       } else {
-        recommendation = await prisma.aIRecommendation.create({
-          data: {
-            studentId: student.id,
-            type: 'TRIAL',
-            title: `Рекомендация профпробы: ${matchedTrial.title}`,
-            text: `По твоим интересам и навыкам ИИ-ассистент рекомендует попробовать пробу «${matchedTrial.title}» в АИТУ.`,
-            relatedTrialId: matchedTrial.id,
-            status: 'ACTIVE'
-          },
-          include: {
-            relatedTrial: {
-              include: { employer: true, zone: true }
+        recommendation =
+          await prisma.aIRecommendation.create({
+            data: {
+              studentId: student.id,
+
+              type: 'TRIAL',
+
+              title:
+                `Рекомендация профпробы: ${matchedTrial.title}`,
+
+              text:
+                `По твоим интересам и навыкам ` +
+                `ИИ-ассистент рекомендует попробовать ` +
+                `пробу «${matchedTrial.title}» в АИТУ.`,
+
+              relatedTrialId:
+                matchedTrial.id,
+
+              status: 'ACTIVE'
+            },
+
+            include: {
+              relatedTrial: {
+                include: {
+                  employer: true,
+                  zone: true
+                }
+              }
             }
-          }
-        });
+          });
       }
     }
 
-    // Получаем обновленный список фактов памяти
-    const updatedFacts = await prisma.aIUserFact.findMany({
-      where: { studentId: student.id },
-      orderBy: { createdAt: 'desc' }
+    // ------------------------------------------------------
+    // Обновляем текущий этап и сценарий сессии
+    // ------------------------------------------------------
+
+    await prisma.chatSession.update({
+      where: {
+        id: session.id
+      },
+
+      data: {
+        scenario: normalizedScenario,
+        currentStage: normalizedStage
+      }
     });
 
-    res.json({
+    // ------------------------------------------------------
+    // Получаем обновлённые факты
+    // ------------------------------------------------------
+
+    const updatedFacts =
+      await prisma.aIUserFact.findMany({
+        where: {
+          studentId: student.id
+        },
+
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+    // ------------------------------------------------------
+    // Возвращаем ответ frontend
+    // ------------------------------------------------------
+
+    return res.json({
       answer: aiAnswer,
-      scenario,
-      stage,
-      sessionId,
-      facts: updatedFacts,
+
+      scenario:
+        normalizedScenario,
+
+      stage:
+        normalizedStage,
+
+      sessionId:
+        session.id,
+
+      facts:
+        updatedFacts,
+
       recommendation
     });
+
   } catch (error) {
-    console.error('Error in /api/assistant/chat:', error);
-    res.status(500).json({ error: error.message });
+
+    console.error(
+      '=========================================='
+    );
+
+    console.error(
+      'Error in /api/assistant/chat:'
+    );
+
+    console.error(
+      error
+    );
+
+    console.error(
+      '=========================================='
+    );
+
+    return res.status(500).json({
+      error:
+        error.message ||
+        'Ошибка сервера ИИ'
+    });
   }
 });
 
