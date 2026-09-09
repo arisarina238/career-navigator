@@ -258,7 +258,7 @@ export function App() {
               <>
                 {activeTab === 'profile' && (
                   <div className="animate-fade-in">
-                    <DigitalProfileCard currentRole={activeRole} />
+                    <DigitalProfileCard currentRole={activeRole} onNavigateTab={handleNavigateTab} />
                     <RoleDashboards activeRole={activeRole} onNavigateTab={handleNavigateTab} />
                   </div>
                 )}

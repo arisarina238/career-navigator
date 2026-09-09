@@ -4,7 +4,9 @@ import { InternshipModal } from './InternshipModal';
 import { 
   IconBriefcase, 
   IconShield, 
-  IconMapPin
+  IconMapPin,
+  IconCheck,
+  IconSparkles
 } from '../common/Icons';
 
 export const EmployerCatalog = ({ activeRole }) => {
@@ -12,22 +14,45 @@ export const EmployerCatalog = ({ activeRole }) => {
   const [loading, setLoading] = useState(true);
   const [selectedVacancy, setSelectedVacancy] = useState(null);
   const [selectedCompany, setSelectedCompany] = useState(null);
+  const [appliedVacancyIds, setAppliedVacancyIds] = useState(new Set());
+  const [toastMessage, setToastMessage] = useState(null);
 
-  useEffect(() => {
+  const loadEmployers = () => {
     setLoading(true);
     api.getEmployers()
       .then((data) => {
         if (Array.isArray(data)) {
           setEmployers(data);
+          const applied = new Set();
+          data.forEach(emp => {
+            if (emp.vacancies) {
+              emp.vacancies.forEach(v => {
+                if (v.isApplied) applied.add(v.id);
+              });
+            }
+          });
+          setAppliedVacancyIds(applied);
         }
       })
       .catch((err) => console.warn('Could not load employers from API:', err.message))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadEmployers();
   }, []);
 
   const handleApply = (vacancy, companyName) => {
     setSelectedVacancy(vacancy);
     setSelectedCompany(companyName);
+  };
+
+  const handleVacancyApplied = (vacId) => {
+    setAppliedVacancyIds((prev) => new Set([...prev, vacId]));
+    setToastMessage(`Отклик на позицию «${selectedVacancy?.title || 'Вакансию'}» успешно отправлен работодателю!`);
+    setTimeout(() => setToastMessage(null), 4500);
+    // Также можно перезагрузить данные
+    setTimeout(() => loadEmployers(), 1000);
   };
 
   return (
@@ -40,7 +65,29 @@ export const EmployerCatalog = ({ activeRole }) => {
           setSelectedVacancy(null);
           setSelectedCompany(null);
         }}
+        onApplied={handleVacancyApplied}
       />
+
+      {/* Toast Feedback */}
+      {toastMessage && (
+        <div style={{
+          backgroundColor: '#ecfdf5',
+          color: '#065f46',
+          border: '1px solid #a7f3d0',
+          padding: '12px 20px',
+          borderRadius: '12px',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          fontWeight: 600,
+          fontSize: '0.88rem',
+          boxShadow: '0 4px 12px rgba(16, 185, 129, 0.12)'
+        }} className="animate-fade-in">
+          <IconCheck size={18} color="#10b981" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
 
       {/* Header Banner */}
       <div className="card" style={{ marginBottom: '24px' }}>
@@ -95,21 +142,41 @@ export const EmployerCatalog = ({ activeRole }) => {
                 <h4 style={styles.vacTitle}>Доступные позиции и стажировки:</h4>
                 <div style={styles.vacList}>
                   {emp.vacancies && emp.vacancies.length > 0 ? (
-                    emp.vacancies.map((v) => (
-                      <div key={v.id} style={styles.vacItem}>
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: '0.88rem', color: '#0f172a' }}>{v.title}</div>
-                          <div style={{ fontSize: '0.78rem', color: '#0066ff' }}>{v.salary} • {v.type}</div>
+                    emp.vacancies.map((v) => {
+                      const isApplied = appliedVacancyIds.has(v.id);
+                      return (
+                        <div key={v.id} style={styles.vacItem}>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: '0.88rem', color: '#0f172a' }}>{v.title}</div>
+                            <div style={{ fontSize: '0.78rem', color: '#0066ff' }}>{v.salary} • {v.type}</div>
+                          </div>
+                          {isApplied ? (
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              padding: '6px 12px',
+                              fontSize: '0.76rem',
+                              fontWeight: 700,
+                              backgroundColor: '#ecfdf5',
+                              color: '#065f46',
+                              border: '1px solid #a7f3d0',
+                              borderRadius: '8px'
+                            }}>
+                              <IconCheck size={13} color="#10b981" /> Отклик отправлен
+                            </span>
+                          ) : (
+                            <button
+                              className="btn btn-secondary"
+                              style={{ padding: '6px 12px', fontSize: '0.78rem' }}
+                              onClick={() => handleApply(v, emp.name)}
+                            >
+                              Откликнуться
+                            </button>
+                          )}
                         </div>
-                        <button
-                          className="btn btn-secondary"
-                          style={{ padding: '6px 12px', fontSize: '0.78rem' }}
-                          onClick={() => handleApply(v, emp.name)}
-                        >
-                          Откликнуться
-                        </button>
-                      </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
                       В настоящее время открытых позиций нет.

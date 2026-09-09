@@ -1,32 +1,57 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../../services/api';
-import { IconClose, IconCalendar, IconMapPin, IconUser, IconCheck, IconCompass, IconInfo } from '../common/Icons';
+import { 
+  IconClose, 
+  IconCalendar, 
+  IconMapPin, 
+  IconUser, 
+  IconCheck, 
+  IconCompass, 
+  IconInfo,
+  IconAlertTriangle 
+} from '../common/Icons';
 
 export const BookingModal = ({ trial, isOpen, onClose, onBooked }) => {
   const [booked, setBooked] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setBooked(false);
+      setErrorMessage(null);
+    }
+  }, [isOpen, trial]);
 
   if (!isOpen || !trial) return null;
 
   const handleConfirm = async () => {
     setLoading(true);
+    setErrorMessage(null);
     try {
       if (trial.id) {
         await api.bookProTrial(trial.id);
       }
       setBooked(true);
       // Уведомляем карту об успешной записи
-      if (onBooked) setTimeout(() => onBooked(), 1800);
+      if (onBooked) setTimeout(() => onBooked(), 1600);
     } catch (err) {
-      console.warn('Booking warning:', err.message);
-      setBooked(true);
+      setErrorMessage(err.message || 'Не удалось записаться на пробу');
+      setBooked(false);
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <div className="modal-overlay" onClick={onClose}>
+  const handleClose = () => {
+    setBooked(false);
+    setErrorMessage(null);
+    onClose();
+  };
+
+  return createPortal(
+    <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={handleClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ padding: '28px' }}>
         <div style={styles.header}>
           <div>
@@ -35,7 +60,7 @@ export const BookingModal = ({ trial, isOpen, onClose, onBooked }) => {
               Запись на профпробу: {trial.title}
             </h3>
           </div>
-          <button onClick={onClose} style={styles.closeBtn}><IconClose size={18} color="#64748b" /></button>
+          <button onClick={handleClose} style={styles.closeBtn}><IconClose size={18} color="#64748b" /></button>
         </div>
 
         {!booked ? (
@@ -63,15 +88,33 @@ export const BookingModal = ({ trial, isOpen, onClose, onBooked }) => {
               {trial.description}
             </p>
 
+            {errorMessage && (
+              <div style={{
+                backgroundColor: '#fef2f2',
+                border: '1px solid #fecaca',
+                color: '#991b1b',
+                padding: '12px 14px',
+                borderRadius: '8px',
+                fontSize: '0.85rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginBottom: '16px'
+              }}>
+                <IconAlertTriangle size={18} color="#dc2626" style={{ flexShrink: 0 }} />
+                <span>{errorMessage}</span>
+              </div>
+            )}
+
             <div style={{ ...styles.noticeBox, display: 'flex', alignItems: 'center', gap: '8px' }}>
               <IconInfo size={16} color="#0369a1" style={{ flexShrink: 0 }} />
               <span>Место фиксируется в вашем <strong>Цифровом профиле Санкт-Петербурга</strong>. Родитель и наставник получат уведомление для подтверждения.</span>
             </div>
 
             <div style={styles.actionsRow}>
-              <button className="btn btn-secondary" onClick={onClose}>Отмена</button>
-              <button className="btn btn-primary" onClick={handleConfirm}>
-                Подтвердить запись
+              <button className="btn btn-secondary" onClick={handleClose} disabled={loading}>Отмена</button>
+              <button className="btn btn-primary" onClick={handleConfirm} disabled={loading || trial.availableSlots <= 0}>
+                {loading ? 'Выполняется запись...' : 'Подтвердить запись'}
               </button>
             </div>
           </div>
@@ -82,11 +125,12 @@ export const BookingModal = ({ trial, isOpen, onClose, onBooked }) => {
             <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '20px' }}>
               Проба зафиксирована в Вашем цифровом профиле и календаре СПб.
             </p>
-            <button className="btn btn-navy" onClick={onClose}>Вернуться к карте</button>
+            <button className="btn btn-navy" onClick={handleClose}>Вернуться к карте</button>
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

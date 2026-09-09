@@ -46,7 +46,8 @@ async def chat(
             message=request.message,
             history=history,
             scenario=request.scenario,
-            stage=request.stage
+            stage=request.stage,
+            trials=request.trials
         )
 
 

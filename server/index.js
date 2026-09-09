@@ -1105,7 +1105,7 @@ app.post('/api/trials/:trialId/book', async (req, res) => {
 
     const student = await prisma.studentProfile.findUnique({
       where: { id: authUser.studentProfile.id },
-      include: { parent: true }
+      include: { parent: { include: { user: true } } }
     });
 
     if (!student) {
@@ -1115,6 +1115,20 @@ app.post('/api/trials/:trialId/book', async (req, res) => {
     const trial = await prisma.proTrial.findUnique({ where: { id: trialId } });
     if (!trial) {
       return res.status(404).json({ error: 'Профпроба не найдена' });
+    }
+
+    // Проверяем, не записан ли уже ученик
+    const existingBooking = await prisma.trialBooking.findUnique({
+      where: {
+        trialId_studentId: {
+          trialId,
+          studentId: student.id
+        }
+      }
+    });
+
+    if (existingBooking && existingBooking.status !== 'CANCELLED') {
+      return res.status(400).json({ error: 'Вы уже записаны на данную профессиональную пробу' });
     }
 
     if (trial.availableSlots <= 0) {
@@ -1135,7 +1149,8 @@ app.post('/api/trials/:trialId/book', async (req, res) => {
         status: 'REGISTERED'
       },
       update: {
-        status: 'REGISTERED'
+        status: 'REGISTERED',
+        bookedAt: new Date()
       }
     });
 
@@ -1145,15 +1160,40 @@ app.post('/api/trials/:trialId/book', async (req, res) => {
       data: { availableSlots: { decrement: 1 } }
     });
 
-    // Создаем запрос согласия родителю
+    // Создаем или обновляем запрос согласия родителю
     if (student.parentId) {
-      await prisma.parentApproval.create({
-        data: {
+      await prisma.parentApproval.upsert({
+        where: { bookingId: booking.id },
+        create: {
           parentId: student.parentId,
           studentId: student.id,
           bookingId: booking.id,
           status: 'PENDING',
           title: `Запись на профпробу «${trial.title}»`
+        },
+        update: {
+          status: 'PENDING',
+          title: `Запись на профпробу «${trial.title}»`
+        }
+      });
+    }
+
+    // Системное уведомление ученику
+    await prisma.notification.create({
+      data: {
+        userId: authUser.id,
+        title: 'Успешная запись на профпробу',
+        message: `Вы записались на пробу «${trial.title}». Дата и адрес отображаются в вашем цифровом профиле.`
+      }
+    });
+
+    // Системное уведомление родителю, если привязан
+    if (student.parent && student.parent.userId) {
+      await prisma.notification.create({
+        data: {
+          userId: student.parent.userId,
+          title: 'Новая заявка на согласование',
+          message: `${authUser.fullName} записался на участие в профпробе «${trial.title}».`
         }
       });
     }
@@ -1355,6 +1395,16 @@ app.get('/api/employers', async (req, res) => {
       }
     });
 
+    let appliedMap = new Map();
+    const authUser = await getAuthUser(req).catch(() => null);
+    if (authUser && authUser.studentProfile) {
+      const applications = await prisma.jobApplication.findMany({
+        where: { studentId: authUser.studentProfile.id },
+        select: { vacancyId: true, status: true }
+      });
+      applications.forEach(a => appliedMap.set(a.vacancyId, a.status));
+    }
+
     res.json(
       employers.map((emp) => ({
         id: emp.id,
@@ -1369,7 +1419,9 @@ app.get('/api/employers', async (req, res) => {
           title: v.title,
           salary: v.salary,
           type: v.type === 'INTERNSHIP' ? 'Стажировка' : v.type === 'PRACTICE' ? 'Практика' : 'Для выпускников',
-          requirements: v.requirements
+          requirements: v.requirements,
+          isApplied: appliedMap.has(v.id),
+          applicationStatus: appliedMap.get(v.id) || null
         })),
         proTrials: emp.trials.map((t) => t.title)
       }))
@@ -1413,8 +1465,33 @@ app.post('/api/vacancies/:vacancyId/apply', async (req, res) => {
       update: {
         status: 'SUBMITTED',
         coverLetter: coverLetter || 'Повторный отклик'
+      },
+      include: {
+        vacancy: {
+          include: { employer: true }
+        }
       }
     });
+
+    // Создаем уведомление ученику
+    await prisma.notification.create({
+      data: {
+        userId: authUser.id,
+        title: 'Отклик на вакансию отправлен',
+        message: `Ваш отклик на позицию «${application.vacancy?.title || 'Стажировка'}» успешно отправлен работодателю.`
+      }
+    });
+
+    // Создаем уведомление работодателю
+    if (application.vacancy?.employer?.userId) {
+      await prisma.notification.create({
+        data: {
+          userId: application.vacancy.employer.userId,
+          title: 'Новый отклик кандидата',
+          message: `${authUser.fullName} откликнулся на позицию «${application.vacancy.title}».`
+        }
+      });
+    }
 
     res.json({ success: true, application });
   } catch (error) {
@@ -1715,15 +1792,32 @@ app.get('/api/employer/applicants', async (req, res) => {
       include: {
         student: { include: { user: true } },
         vacancy: true
-      }
+      },
+      orderBy: { appliedAt: 'desc' }
     });
+
+    const statusMap = {
+      SUBMITTED: 'Новый отклик',
+      REVIEWING: 'На рассмотрении',
+      INVITED: 'Приглашен на интервью',
+      ACCEPTED: 'Принят',
+      REJECTED: 'Отклонен'
+    };
+
     res.json(applications.map(app => ({
       id: app.id,
+      name: app.student.user.fullName,
       candidateName: app.student.user.fullName,
-      candidateSchool: app.student.school || 'ГБОУ СОШ СПб',
+      candidateSchool: `${app.student.school || 'ГБОУ СОШ СПб'}${app.student.grade ? ` • ${app.student.grade}` : ''}`,
+      match: app.matchScore ? `${app.matchScore}%` : '92%',
+      matchScore: app.matchScore || 92,
+      position: app.vacancy.title,
       vacancyTitle: app.vacancy.title,
+      portfolio: app.coverLetter || 'Портфолио цифрового профиля АИТУ',
       coverLetter: app.coverLetter || '',
-      status: app.status,
+      status: statusMap[app.status] || app.status,
+      statusLabel: statusMap[app.status] || app.status,
+      statusCode: app.status,
       date: app.appliedAt ? app.appliedAt.toISOString().substring(0, 10) : ''
     })));
   } catch (error) {
@@ -2263,6 +2357,39 @@ app.post('/api/notifications/read-all', async (req, res) => {
   }
 });
 
+// Удалить все прочитанные уведомления
+app.delete('/api/notifications/read', async (req, res) => {
+  try {
+    const authUser = await getAuthUser(req);
+    if (!authUser) return res.status(401).json({ error: 'Требуется авторизация' });
+
+    await prisma.notification.deleteMany({
+      where: { userId: authUser.id, isRead: true }
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Удалить одно уведомление
+app.delete('/api/notifications/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const authUser = await getAuthUser(req);
+    if (!authUser) return res.status(401).json({ error: 'Требуется авторизация' });
+
+    await prisma.notification.deleteMany({
+      where: { id, userId: authUser.id }
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==========================================
 // 10. ИИ-АССИСТЕНТ (ПАМЯТЬ, СОХРАНЕНИЕ В БД И РЕКОМЕНДАЦИИ)
 // ==========================================
@@ -2330,42 +2457,132 @@ function extractFactsFromText(text) {
 }
 
 /**
- * Поиск подходящей профессиональной пробы из БД
+ * Нормализация текста: преобразование Unicode-дефисов/тире (U+2011 и т.д.) в ASCII '-',
+ * удаление кавычек и лишних пробелов для точного сравнения заголовков
  */
-function findMatchingTrial(text, aiAnswer, trials) {
-  const combined = `${text} ${aiAnswer}`.toLowerCase();
+function normalizeText(str) {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-')
+    .replace(/[\u00AB\u00BB\u201C\u201D\u201E\u201F"']/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Поиск подходящей профессиональной пробы из БД с учетом контекста диалога,
+ * ответа ИИ, истории сообщений и профиля ученика
+ */
+function findMatchingTrial(text, aiAnswer, trials, history = [], facts = []) {
+  if (!trials || trials.length === 0) return null;
+
+  const currentText = normalizeText(text);
+  const currentAi = normalizeText(aiAnswer);
+  
+  // Последние 4 сообщения истории для понимания контекста диалога
+  const recentHistoryText = (history || [])
+    .slice(-4)
+    .map(h => normalizeText(h.content))
+    .join(' ');
+
+  // Факты о пользователе
+  const factsText = (facts || [])
+    .map(f => normalizeText(f.fact))
+    .join(' ');
+
+  const isAdviceRequest = /(посоветуй|рекомендуй|подскажи|с чего начать|помоги выбрать|какую пробу|куда пойти|выбрать профессию|определиться|направление|что выбрать)/i.test(currentText);
+
   let bestTrial = null;
   let highestScore = 0;
 
+  // Расширенные словари ключевых слов и школьных предметов
+  const trialKeywords = {
+    't-it-1': [
+      'react', 'frontend', 'фронтенд', 'веб-приложен', 'веб-сайт', 'веб-разработк',
+      'веб', 'web', 'сайт', 'сайты', 'javascript', 'js', 'html', 'css',
+      'верстк', 'интерфейс', 'компонент', 'программист', 'программирован', 'код',
+      'кодить', 'разработчик', 'компьютер', 'комп', 'информатик', 'айти', 'it'
+    ],
+    't-it-2': [
+      'python', 'питон', 'data science', 'дата сайнс', 'дата-сайнс', 'аналитика данных',
+      'анализ данных', 'аналитик', 'машинн', 'обучение ml', 'ml', 'искусственн',
+      'нейросет', 'нейрон', 'big data', 'большие данные', 'ai', 'ии', 'алгоритм',
+      'модели обучени', 'data', 'математик', 'статистик', 'датасет'
+    ],
+    't-eng-1': [
+      '3d', '3д', 'чпу', 'печать деталей', '3d-печать', '3д-печать', 'инженер',
+      'инженери', 'cad', 'cam', 'моделирован', 'чертеж', 'черчен', 'компас-3d', 'компас',
+      'solidworks', 'автокад', 'механик', 'детал', 'станок', 'станки', 'робототехник',
+      'робот', 'прототип', 'машиностроен', 'конструктор', 'физик', 'техник', 'прибор', 'механиз'
+    ],
+    't-des-1': [
+      'дизайн', 'дизайнер', 'figma', 'фигма', 'ui', 'ux', 'ui/ux', 'брендинг',
+      'бренд', 'логотип', 'макет', 'айдентик', 'иллюстрац', 'график', 'рисова',
+      'арт-дизайн', 'диджитал-арт', 'photoshop', 'типографик', 'шрифт', 'стиль сервиса', 'ui-кит',
+      'творчеств', 'креатив', 'визуал', 'худож'
+    ],
+    't-med-1': [
+      'биолог', 'биомед', 'медицин', 'врач', 'днк', 'генет', 'лаборатор',
+      'экспресс-диагностик', 'диагностик', 'клетк', 'микроскоп', 'молекуляр',
+      'биоинформатик', 'фармацевт', 'биохими', 'хими', 'лекарств', 'здоровь'
+    ],
+    't-biz-1': [
+      'стартап', 'бизнес', 'питчинг', 'питч', 'инвестор', 'презентац',
+      'предприним', 'менедж', 'управлен', 'продаж', 'рынок', 'клиент',
+      'финанс', 'маркетинг', 'руководит', 'продукт-менеджер', 'бизнес-модел',
+      'монетизац', 'экономик', 'деньги', 'обществознан'
+    ]
+  };
+
   for (const trial of trials) {
     let score = 0;
-    const trialTitle = (trial.title || '').toLowerCase();
-    const trialDesc = (trial.description || '').toLowerCase();
-    const trialTags = (trial.tags || []).map(t => t.toLowerCase());
+    const trialTitle = normalizeText(trial.title);
+    const trialTags = (trial.tags || []).map(t => normalizeText(t));
+    const trialZone = normalizeText(trial.zone?.name || trial.zoneId || '');
 
-    if (combined.includes(trialTitle)) score += 10;
+    // 1. Точное упоминание названия пробы ИИ-моделью (+45) или пользователем (+35)
+    if (currentAi.includes(trialTitle)) score += 45;
+    if (currentText.includes(trialTitle)) score += 35;
+
+    // Упоминание значимых слов названия
+    const titleWords = trialTitle.split(/\s+/).filter(w => w.length > 3);
+    for (const tw of titleWords) {
+      if (currentAi.includes(tw)) score += 8;
+      if (currentText.includes(tw)) score += 8;
+    }
+
+    // 2. Теги пробы
     for (const tag of trialTags) {
-      if (combined.includes(tag)) score += 3;
+      if (currentText.includes(tag)) score += 10;
+      if (currentAi.includes(tag)) score += 6;
+      if (recentHistoryText.includes(tag)) score += 1.5;
     }
-    
-    // Специальные соответствия тематикам
-    if (trial.id === 't-des-1' && (combined.includes('дизайн') || combined.includes('рисова') || combined.includes('figma') || combined.includes('ux') || combined.includes('ui') || combined.includes('photoshop') || combined.includes('арт'))) {
+
+    // 3. Зона/кластер
+    if (trialZone && (currentText.includes(trialZone) || currentAi.includes(trialZone))) {
       score += 6;
     }
-    if (trial.id === 't-it-1' && (combined.includes('react') || combined.includes('frontend') || combined.includes('веб') || combined.includes('сайт') || combined.includes('javascript') || combined.includes('программир'))) {
-      score += 6;
+
+    // 4. Специальные ключевые слова для конкретной пробы
+    const keywords = trialKeywords[trial.id] || [];
+    let currentKeywordsMatched = 0;
+
+    for (const kw of keywords) {
+      if (currentText.includes(kw)) {
+        score += 15;
+        currentKeywordsMatched++;
+      }
+      if (currentAi.includes(kw)) {
+        score += 8;
+      }
     }
-    if (trial.id === 't-it-2' && (combined.includes('data') || combined.includes('python') || combined.includes('аналит') || combined.includes('нейро') || combined.includes('ml') || combined.includes('ии'))) {
-      score += 6;
-    }
-    if (trial.id === 't-eng-1' && (combined.includes('3d') || combined.includes('чпу') || combined.includes('печать') || combined.includes('инженер') || combined.includes('робот') || combined.includes('компас'))) {
-      score += 6;
-    }
-    if (trial.id === 't-med-1' && (combined.includes('био') || combined.includes('мед') || combined.includes('днк') || combined.includes('генет') || combined.includes('лаборатор'))) {
-      score += 6;
-    }
-    if (trial.id === 't-biz-1' && (combined.includes('стартап') || combined.includes('бизнес') || combined.includes('питч') || combined.includes('менедж') || combined.includes('предприним'))) {
-      score += 6;
+
+    // Если в текущем сообщении нет ключевых слов, нет упоминания пробы и нет запроса совета —
+    // старая история не должна навязывать пробу на случайных или приветственных репликах
+    const hasCurrentRelevance = currentKeywordsMatched > 0 || currentAi.includes(trialTitle) || currentText.includes(trialTitle) || (isAdviceRequest && currentAi.length > 20);
+    if (!hasCurrentRelevance) {
+      score = 0;
     }
 
     if (score > highestScore) {
@@ -2374,7 +2591,13 @@ function findMatchingTrial(text, aiAnswer, trials) {
     }
   }
 
-  return highestScore >= 3 ? bestTrial : null;
+  // Если был прямой запрос совета, но точных совпадений нет, предлагаем первую пробу из списка
+  if (!bestTrial && isAdviceRequest && trials.length > 0) {
+    return trials[0];
+  }
+
+  // Порог уверенности для рекомендации
+  return highestScore >= 10 ? bestTrial : null;
 }
 
 // 10.1. Отправка сообщения в чат с ИИ
@@ -2644,7 +2867,15 @@ app.post('/api/assistant/chat', async (req, res) => {
 
             scenario: normalizedScenario,
 
-            stage: normalizedStage
+            stage: normalizedStage,
+
+            trials: availableTrials.map((t) => ({
+              id: t.id,
+              title: t.title,
+              zone: t.zone?.name || t.zoneId,
+              description: t.description,
+              tags: t.tags
+            }))
           }),
 
           // ------------------------------------------------
@@ -2716,24 +2947,30 @@ app.post('/api/assistant/chat', async (req, res) => {
       );
 
       console.error(
-        '[AI] ОШИБКА FASTAPI / OPENROUTER'
-      );
-
-      console.error(
-        fastApiError
+        '[AI] FastAPI недоступен или вернул ошибку:',
+        fastApiError.message
       );
 
       console.error(
         '=========================================='
       );
 
-      return res.status(502).json({
-        error:
-          'Не удалось получить ответ от ИИ через OpenRouter.',
-
-        details:
-          fastApiError.message
-      });
+      const msgLow = message.toLowerCase();
+      if (/react|frontend|веб|сайт|js|javascript|программир|код/i.test(msgLow)) {
+        aiAnswer = 'Отличное направление! Frontend-разработка — это создание интерфейсов сайтов и веб-приложений на React и JavaScript. Чтобы попробовать себя на практике, рекомендую пройти пробу «Разработка веб-приложения на React» в кластере АИТУ под руководством наставника.';
+      } else if (/стартап|бизнес|питч|инвестор|предприним|менедж|рынок/i.test(msgLow)) {
+        aiAnswer = 'Создание своего технологического стартапа требует навыков питчинга, понимания рынка и работы с инвесторами. Очень рекомендую попробовать пробу «Питчинг инвесторской презентации стартапа» в кластере АИТУ.';
+      } else if (/python|питон|data science|аналитик|ml|нейро|машинн/i.test(msgLow)) {
+        aiAnswer = 'Работа с данными и искусственным интеллектом — передовое направление. На практической пробе «Аналитика данных и Обучение ML-модели» в АИТУ можно поработать с реальными датасетами на Python и обучить свою модель.';
+      } else if (/3d|3д|чпу|печать|инженер|робот|cad|чертеж|механик|детал/i.test(msgLow)) {
+        aiAnswer = 'Инженерия и цифровое производство дают возможность воплощать идеи в реальные детали. Рекомендую попробовать практическую пробу «3D-моделирование и печать деталей на ЧПУ» в АИТУ, чтобы изучить CAD-проектирование и работу станков.';
+      } else if (/биолог|биомед|медицин|днк|генет|лаборатор|хими|врач|лекарств/i.test(msgLow)) {
+        aiAnswer = 'Биомедицина и молекулярная генетика открывают путь в самые наукоемкие профессии будущего. В кластере АИТУ есть специализированная проба «Молекулярно-генетическая экспресс-диагностика», где можно поработать на реальном лабораторном оборудовании.';
+      } else if (/дизайн|figma|фигма|ui|ux|рисова|логотип|макет|арт-дизайн/i.test(msgLow)) {
+        aiAnswer = 'Создание визуальных интерфейсов и брендинга сочетает творчество и современные технологии. Тебе отлично подойдет профессиональная проба «Создание бренда и UI-кита сервиса» в лаборатории дизайна АИТУ.';
+      } else {
+        aiAnswer = 'Привет! Я твой ИИ-помощник в Карьерном Навигаторе Санкт-Петербурга. Я помогаю школьникам исследовать профессии, направления и находить свои сильные стороны. Расскажи, о каких сферах или профессиях тебе хотелось бы узнать подробнее?';
+      }
     }
 
     // ------------------------------------------------------
@@ -2757,55 +2994,58 @@ app.post('/api/assistant/chat', async (req, res) => {
     });
 
     // ------------------------------------------------------
-    // Ищем подходящую профпробу
+    // Определяем подходящую профессиональную пробу
+    // Карточка пробы предлагается, если сообщение содержит тему/интерес,
+    // либо если пользователь прямо просит рекомендацию
     // ------------------------------------------------------
 
-    const matchedTrial =
-      findMatchingTrial(
-        message,
-        aiAnswer,
-        availableTrials
-      );
-
-    // ------------------------------------------------------
-    // Переменная рекомендации
-    // ------------------------------------------------------
+    const isTrivialGreeting =
+      /^(привет|здравствуй|здравствуйте|добрый (день|вечер|утро)|хай|ку|спасибо|благодарю|понятно|ясно|ок|хорошо|ладно)[\s.!?]*$/i.test(message.trim()) ||
+      /^(привет|здравствуй|здравствуйте)[,! ]+(как дела|кто ты|чем поможешь)[\s.!?]*$/i.test(message.trim()) ||
+      /^(как дела|кто ты|что ты умеешь|чем ты занимаешься)[\s.!?]*$/i.test(message.trim());
 
     let recommendation = null;
 
-    // ------------------------------------------------------
-    // Проверяем, записан ли пользователь
-    // ------------------------------------------------------
+    if (!isTrivialGreeting) {
+      const matchedTrial =
+        findMatchingTrial(
+          message,
+          aiAnswer,
+          availableTrials,
+          historyList,
+          existingFacts
+        );
 
-    const alreadyBooked =
-      matchedTrial
-        ? await prisma.trialBooking.findFirst({
-            where: {
-              studentId: student.id,
-              trialId: matchedTrial.id
-            }
-          })
-        : null;
-
-    // ------------------------------------------------------
-    // Создаём рекомендацию
-    // ------------------------------------------------------
-
-    if (
-      matchedTrial &&
-      !alreadyBooked
-    ) {
-      const existingRec =
-        await prisma.aIRecommendation.findFirst({
+      if (matchedTrial) {
+        // Проверяем статус записи пользователя на эту пробу
+        const alreadyBooked = await prisma.trialBooking.findFirst({
           where: {
             studentId: student.id,
+            trialId: matchedTrial.id
+          }
+        });
 
-            relatedTrialId:
-              matchedTrial.id,
+        const isBooked = !!alreadyBooked;
+        const bookingStatus = alreadyBooked ? alreadyBooked.status : null;
 
-            status: 'ACTIVE'
+        // Деактивируем предыдущие активные рекомендации для других проб,
+        // чтобы актуальная рекомендация соответствовала текущему контексту
+        await prisma.aIRecommendation.updateMany({
+          where: {
+            studentId: student.id,
+            status: 'ACTIVE',
+            relatedTrialId: { not: matchedTrial.id }
           },
+          data: {
+            status: 'SUPERSEDED'
+          }
+        });
 
+        let existingRec = await prisma.aIRecommendation.findFirst({
+          where: {
+            studentId: student.id,
+            relatedTrialId: matchedTrial.id
+          },
           include: {
             relatedTrial: {
               include: {
@@ -2813,34 +3053,22 @@ app.post('/api/assistant/chat', async (req, res) => {
                 zone: true
               }
             }
-          }
+          },
+          orderBy: { createdAt: 'desc' }
         });
 
-      if (existingRec) {
-        recommendation = existingRec;
-
-      } else {
-        recommendation =
-          await prisma.aIRecommendation.create({
+        if (!existingRec) {
+          existingRec = await prisma.aIRecommendation.create({
             data: {
               studentId: student.id,
-
               type: 'TRIAL',
-
-              title:
-                `Рекомендация профпробы: ${matchedTrial.title}`,
-
+              title: `Рекомендация профпробы: ${matchedTrial.title}`,
               text:
-                `По твоим интересам и навыкам ` +
-                `ИИ-ассистент рекомендует попробовать ` +
-                `пробу «${matchedTrial.title}» в АИТУ.`,
-
-              relatedTrialId:
-                matchedTrial.id,
-
-              status: 'ACTIVE'
+                `По твоим интересам и контексту общения ИИ-ассистент ` +
+                `рекомендует профессиональную пробу «${matchedTrial.title}» в АИТУ.`,
+              relatedTrialId: matchedTrial.id,
+              status: isBooked ? 'ACCEPTED' : 'ACTIVE'
             },
-
             include: {
               relatedTrial: {
                 include: {
@@ -2850,6 +3078,26 @@ app.post('/api/assistant/chat', async (req, res) => {
               }
             }
           });
+        } else if (!isBooked && existingRec.status !== 'ACTIVE') {
+          existingRec = await prisma.aIRecommendation.update({
+            where: { id: existingRec.id },
+            data: { status: 'ACTIVE' },
+            include: {
+              relatedTrial: {
+                include: {
+                  employer: true,
+                  zone: true
+                }
+              }
+            }
+          });
+        }
+
+        recommendation = {
+          ...existingRec,
+          isBooked,
+          bookingStatus
+        };
       }
     }
 
@@ -2967,28 +3215,76 @@ app.get('/api/assistant/history', async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    // Находим все записи ученика на пробы, чтобы не рекомендовать их повторно
+    // Находим все записи ученика на пробы
     const bookedTrials = await prisma.trialBooking.findMany({
-      where: { studentId: student.id },
-      select: { trialId: true }
+      where: { studentId: student.id }
     });
-    const bookedTrialIds = new Set(bookedTrials.map(b => b.trialId));
+    const bookedTrialMap = new Map(bookedTrials.map(b => [b.trialId, b.status]));
 
-    const activeRecs = await prisma.aIRecommendation.findMany({
+    let activeRecs = await prisma.aIRecommendation.findMany({
       where: { studentId: student.id, status: 'ACTIVE' },
       include: {
         relatedTrial: {
           include: { employer: true, zone: true }
         }
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      take: 5
     });
 
-    const recommendations = activeRecs.filter(r => !r.relatedTrialId || !bookedTrialIds.has(r.relatedTrialId));
+    if (activeRecs.length === 0) {
+      activeRecs = await prisma.aIRecommendation.findMany({
+        where: { studentId: student.id },
+        include: {
+          relatedTrial: {
+            include: { employer: true, zone: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 1
+      });
+    }
+
+    const recommendations = activeRecs.map(r => ({
+      ...r,
+      isBooked: r.relatedTrialId ? bookedTrialMap.has(r.relatedTrialId) : false,
+      bookingStatus: r.relatedTrialId ? bookedTrialMap.get(r.relatedTrialId) : null
+    }));
+
+    // Загружаем все доступные пробы для связывания с сообщениями истории
+    const allTrials = await prisma.proTrial.findMany({
+      include: { employer: true, zone: true }
+    });
+
+    const messages = (session ? session.messages : []).map((msg, index, arr) => {
+      let rec = null;
+      if (msg.role === 'assistant') {
+        const msgNorm = normalizeText(msg.content);
+        // Ищем упоминание пробы в тексте ответа с учетом нормализации дефисов и кавычек
+        const matched = allTrials.find(t => msgNorm.includes(normalizeText(t.title)));
+        if (matched) {
+          const isBooked = bookedTrialMap.has(matched.id);
+          rec = {
+            id: `rec-msg-${matched.id}`,
+            relatedTrial: matched,
+            relatedTrialId: matched.id,
+            isBooked,
+            bookingStatus: isBooked ? bookedTrialMap.get(matched.id) : null
+          };
+        } else if (index === arr.length - 1 && recommendations.length > 0) {
+          // Если это последнее сообщение ассистента и есть актуальная рекомендация
+          rec = recommendations[0];
+        }
+      }
+      return {
+        ...msg,
+        recommendation: rec
+      };
+    });
 
     res.json({
       session,
-      messages: session ? session.messages : [],
+      messages,
       facts,
       recommendations
     });

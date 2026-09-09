@@ -22,6 +22,7 @@ class ChatRequest(BaseModel):
     history: list[ChatMessage] = []
     scenario: str = "A"
     stage: str = "interests"
+    trials: list[dict] = []
 
 
 class ChatResponse(BaseModel):

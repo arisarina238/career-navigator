@@ -100,7 +100,7 @@ export const DiagnosticQuiz = ({ onNavigateTab, onComplete }) => {
     }
   };
 
-  const handleRestart = () => {
+  const handleRestart = async () => {
     setHistory([]);
     setCurrentQuestion(null);
     setStepNumber(1);
@@ -108,7 +108,24 @@ export const DiagnosticQuiz = ({ onNavigateTab, onComplete }) => {
     setIsCompleted(false);
     setResultsData(null);
     setSubmitError(null);
-    initAdaptiveTest();
+    setFetchingQuestions(true);
+
+    try {
+      // Запрашиваем первый вопрос нового прохождения теста
+      const res = await api.submitAdaptiveStep([]);
+      if (res && res.question) {
+        setCurrentQuestion(res.question);
+        setStepNumber(1);
+        if (res.confidenceScore) setConfidenceScore(res.confidenceScore);
+      } else {
+        throw new Error('Не удалось получить вопрос');
+      }
+    } catch (err) {
+      console.warn('Error restarting adaptive test:', err.message);
+      setSubmitError('Не удалось начать тест заново. Попробуйте ещё раз.');
+    } finally {
+      setFetchingQuestions(false);
+    }
   };
 
   if (fetchingQuestions) {

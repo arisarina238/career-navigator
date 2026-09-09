@@ -181,6 +181,14 @@ export const api = {
     request('/api/notifications/read-all', {
       method: 'POST'
     }),
+  deleteNotification: (id) =>
+    request(`/api/notifications/${id}`, {
+      method: 'DELETE'
+    }),
+  deleteReadNotifications: () =>
+    request('/api/notifications/read', {
+      method: 'DELETE'
+    }),
 
   // 10. ИИ-Ассистент
   sendChatMessage: (message, scenario = 'A', stage = 'interests', sessionId = null) =>

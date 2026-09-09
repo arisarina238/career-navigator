@@ -771,23 +771,41 @@ export const EmployerView = ({ activeTab }) => {
                     </td>
                   </tr>
                 ) : (
-                  applicants.map((a) => (
-                    <tr key={a.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                      <td style={{ padding: '12px', fontWeight: 700, color: '#0a2540' }}>{a.name}</td>
-                      <td style={{ padding: '12px' }}>
-                        <span style={{ fontWeight: 800, color: '#0066ff' }}>{a.match}</span>
-                      </td>
-                      <td style={{ padding: '12px', fontWeight: 600 }}>{a.position}</td>
-                      <td style={{ padding: '12px', fontSize: '0.8rem', color: '#475569' }}>{a.portfolio}</td>
-                      <td style={{ padding: '12px' }}>
-                        <span className={`badge ${
-                          a.status === 'Приглашен на интервью' ? 'badge-primary' :
-                          a.status === 'Принят' ? 'badge-success' :
-                          a.status === 'Отклонен' ? 'badge-navy' : 'badge-gold'
-                        }`}>
-                          {a.status}
-                        </span>
-                      </td>
+                  applicants.map((a) => {
+                    const candidateName = a.name || a.candidateName || 'Кандидат';
+                    const schoolInfo = a.candidateSchool || '';
+                    const matchVal = a.match || (a.matchScore ? `${a.matchScore}%` : '92%');
+                    const posTitle = a.position || a.vacancyTitle || 'Стажировка';
+                    const details = a.portfolio || a.coverLetter || 'Портфолио профиля АИТУ';
+                    const statusText = a.status || a.statusLabel || 'Новый отклик';
+                    const statusCode = a.statusCode || '';
+
+                    return (
+                      <tr key={a.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                        <td style={{ padding: '12px' }}>
+                          <div style={{ fontWeight: 700, color: '#0a2540' }}>{candidateName}</div>
+                          {schoolInfo && (
+                            <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
+                              {schoolInfo}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <span style={{ fontWeight: 800, color: '#0066ff' }}>{matchVal}</span>
+                        </td>
+                        <td style={{ padding: '12px', fontWeight: 600, color: '#1e293b' }}>{posTitle}</td>
+                        <td style={{ padding: '12px', fontSize: '0.8rem', color: '#475569', maxWidth: '240px' }}>
+                          {details}
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <span className={`badge ${
+                            statusText === 'Приглашен на интервью' || statusCode === 'INVITED' ? 'badge-primary' :
+                            statusText === 'Принят' || statusCode === 'ACCEPTED' ? 'badge-success' :
+                            statusText === 'Отклонен' || statusCode === 'REJECTED' ? 'badge-navy' : 'badge-gold'
+                          }`}>
+                            {statusText}
+                          </span>
+                        </td>
                       <td style={{ padding: '12px', textAlign: 'right' }}>
                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
                           <button
@@ -814,8 +832,9 @@ export const EmployerView = ({ activeTab }) => {
                         </div>
                       </td>
                     </tr>
-                  ))
-                )}
+                  );
+                })
+              )}
               </tbody>
             </table>
           </div>

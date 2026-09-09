@@ -20,6 +20,16 @@ const QUICK_SUGGESTIONS = [
   'Чем отличаются карьерные сценарии А, Б и В?'
 ];
 
+const normalizeText = (str) => {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-')
+    .replace(/[\u00AB\u00BB\u201C\u201D\u201E\u201F"']/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
 export const AiChatWindow = ({
   isModal = false,
   onClose,
@@ -57,17 +67,32 @@ export const AiChatWindow = ({
           setSessionId(data.session.id);
         }
 
-        if (data.recommendations && data.recommendations.length > 0) {
+        if (data.messages && data.messages.length > 1 && data.recommendations && data.recommendations.length > 0) {
           setRecommendation(data.recommendations[0]);
         }
 
         if (data.messages && data.messages.length > 0) {
-          const formatted = data.messages.map((msg) => ({
-            id: msg.id,
-            sender: msg.role === 'assistant' ? 'ai' : 'user',
-            text: msg.content,
-            time: new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          }));
+          const formatted = data.messages.map((msg, idx, arr) => {
+            let rec = msg.recommendation || null;
+            if (!rec && (msg.role === 'assistant' || msg.sender === 'ai') && data.recommendations && data.recommendations.length > 0) {
+              const msgNorm = normalizeText(msg.content || msg.text || '');
+              const found = data.recommendations.find(r => 
+                r.relatedTrial && msgNorm.includes(normalizeText(r.relatedTrial.title))
+              );
+              if (found) {
+                rec = found;
+              } else if (idx === arr.length - 1) {
+                rec = data.recommendations[0];
+              }
+            }
+            return {
+              id: msg.id,
+              sender: msg.role === 'assistant' ? 'ai' : (msg.sender || 'user'),
+              text: msg.content || msg.text,
+              time: msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (msg.time || getCurrentTime()),
+              recommendation: rec
+            };
+          });
           setMessages(formatted);
         } else {
           // Приветственное сообщение по умолчанию
@@ -179,10 +204,26 @@ export const AiChatWindow = ({
     try {
       await api.bookProTrial(trialId);
       setBookingSuccessId(trialId);
-      // Убираем закрепленную плашку рекомендации сразу после записи
-      if (recommendation && recommendation.relatedTrial && recommendation.relatedTrial.id === trialId) {
-        setTimeout(() => setRecommendation(null), 1500);
-      }
+      setRecommendation((prev) =>
+        prev && prev.relatedTrial?.id === trialId
+          ? { ...prev, isBooked: true, bookingStatus: 'REGISTERED' }
+          : prev
+      );
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.recommendation && msg.recommendation.relatedTrial?.id === trialId) {
+            return {
+              ...msg,
+              recommendation: {
+                ...msg.recommendation,
+                isBooked: true,
+                bookingStatus: 'REGISTERED'
+              }
+            };
+          }
+          return msg;
+        })
+      );
       setTimeout(() => setBookingSuccessId(null), 5000);
     } catch (err) {
       alert(`Ошибка бронирования: ${err.message}`);
@@ -257,61 +298,78 @@ export const AiChatWindow = ({
                 <p style={styles.bubbleText}>{message.text}</p>
 
                 {/* Интерактивная рекомендация с ProTrial, если привязана */}
-                {message.recommendation && message.recommendation.relatedTrial && (
-                  <div style={styles.inlineTrialCard}>
-                    <div style={styles.trialCardHeader}>
-                      <span style={styles.trialBadge}>РЕКОМЕНДОВАННАЯ ПРОБА</span>
-                      {message.recommendation.relatedTrial.employer && (
-                        <span style={styles.trialOrg}>
-                          {message.recommendation.relatedTrial.employer.companyName}
-                        </span>
-                      )}
-                    </div>
-                    <h4 style={styles.trialTitle}>
-                      {message.recommendation.relatedTrial.title}
-                    </h4>
-                    <p style={styles.trialDesc}>
-                      {message.recommendation.relatedTrial.description}
-                    </p>
+                {(() => {
+                  if (!message.recommendation) return null;
+                  const rec = message.recommendation;
+                  const trial = rec.relatedTrial || rec.trial || (rec.title && (rec.format || rec.availableSlots !== undefined) ? rec : null);
+                  if (!trial) return null;
 
-                    <div style={styles.trialMetaRow}>
-                      {message.recommendation.relatedTrial.metro && (
-                        <span style={styles.trialMetaItem}>
-                          <IconMapPin size={12} color="#64748b" /> {message.recommendation.relatedTrial.metro}
-                        </span>
-                      )}
-                      <span style={styles.trialMetaItem}>
-                        <IconCalendar size={12} color="#64748b" /> {new Date(message.recommendation.relatedTrial.nextDate).toLocaleDateString('ru-RU')}
-                      </span>
-                      <span style={styles.trialMetaItem}>
-                        <IconFlame size={12} color="#ff9f1c" /> Мест: {message.recommendation.relatedTrial.availableSlots} из {message.recommendation.relatedTrial.maxSlots}
-                      </span>
-                    </div>
+                  const isBooked = Boolean(rec.isBooked || bookingSuccessId === trial.id);
+                  const bookingStatus = rec.bookingStatus;
 
-                    <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
-                      <button
-                        onClick={() => handleBookTrial(message.recommendation.relatedTrial.id)}
-                        disabled={bookingSuccessId === message.recommendation.relatedTrial.id}
-                        style={{
-                          ...styles.trialBookBtn,
-                          backgroundColor: bookingSuccessId === message.recommendation.relatedTrial.id ? '#10b981' : '#0066ff'
-                        }}
-                      >
-                        {bookingSuccessId === message.recommendation.relatedTrial.id ? (
-                          <>
-                            <IconCheck size={14} color="#ffffff" />
-                            Заявка принята!
-                          </>
-                        ) : (
-                          <>
-                            Записаться на пробу
-                            <IconArrowRight size={14} color="#ffffff" />
-                          </>
+                  return (
+                    <div style={styles.inlineTrialCard}>
+                      <div style={styles.trialCardHeader}>
+                        <span style={styles.trialBadge}>РЕКОМЕНДОВАННАЯ ПРОБА</span>
+                        {trial.employer && (
+                          <span style={styles.trialOrg}>
+                            {trial.employer.companyName}
+                          </span>
                         )}
-                      </button>
+                      </div>
+                      <h4 style={styles.trialTitle}>
+                        {trial.title}
+                      </h4>
+                      {trial.description && (
+                        <p style={styles.trialDesc}>
+                          {trial.description}
+                        </p>
+                      )}
+
+                      <div style={styles.trialMetaRow}>
+                        {trial.metro && (
+                          <span style={styles.trialMetaItem}>
+                            <IconMapPin size={12} color="#64748b" /> {trial.metro}
+                          </span>
+                        )}
+                        {trial.nextDate && (
+                          <span style={styles.trialMetaItem}>
+                            <IconCalendar size={12} color="#64748b" /> {new Date(trial.nextDate).toLocaleDateString('ru-RU')}
+                          </span>
+                        )}
+                        {trial.availableSlots !== undefined && (
+                          <span style={styles.trialMetaItem}>
+                            <IconFlame size={12} color="#ff9f1c" /> Мест: {trial.availableSlots} из {trial.maxSlots || 15}
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
+                        <button
+                          onClick={() => !isBooked && handleBookTrial(trial.id)}
+                          disabled={isBooked}
+                          style={{
+                            ...styles.trialBookBtn,
+                            backgroundColor: isBooked ? '#10b981' : '#0066ff',
+                            cursor: isBooked ? 'default' : 'pointer'
+                          }}
+                        >
+                          {isBooked ? (
+                            <>
+                              <IconCheck size={14} color="#ffffff" />
+                              {bookingStatus === 'CONFIRMED' ? 'Запись подтверждена' : 'Вы уже записаны'}
+                            </>
+                          ) : (
+                            <>
+                              Записаться на пробу
+                              <IconArrowRight size={14} color="#ffffff" />
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 <span style={styles.timeTag}>{message.time}</span>
               </div>
@@ -345,28 +403,55 @@ export const AiChatWindow = ({
       ====================================================== */}
       {recommendation && recommendation.relatedTrial && (
         <div style={styles.activeRecommendationBar}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <IconSparkles size={18} color="#0066ff" />
-              <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+              <IconSparkles size={18} color="#0066ff" style={{ flexShrink: 0 }} />
+              <div style={{ minWidth: 0 }}>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0066ff', textTransform: 'uppercase' }}>
                   Подобранная профпроба:
                 </span>
-                <strong style={{ display: 'block', fontSize: '0.85rem', color: '#0a2540' }}>
+                <strong style={{ display: 'block', fontSize: '0.85rem', color: '#0a2540', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {recommendation.relatedTrial.title}
                 </strong>
               </div>
             </div>
-            <button
-              onClick={() => handleBookTrial(recommendation.relatedTrial.id)}
-              disabled={bookingSuccessId === recommendation.relatedTrial.id}
-              style={{
-                ...styles.quickBookBtn,
-                backgroundColor: bookingSuccessId === recommendation.relatedTrial.id ? '#10b981' : '#0066ff'
-              }}
-            >
-              {bookingSuccessId === recommendation.relatedTrial.id ? 'Записан!' : 'Записаться'}
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+              <button
+                onClick={() => !recommendation.isBooked && handleBookTrial(recommendation.relatedTrial.id)}
+                disabled={recommendation.isBooked || bookingSuccessId === recommendation.relatedTrial.id}
+                style={{
+                  ...styles.quickBookBtn,
+                  backgroundColor: (recommendation.isBooked || bookingSuccessId === recommendation.relatedTrial.id) ? '#10b981' : '#0066ff',
+                  cursor: recommendation.isBooked ? 'default' : 'pointer'
+                }}
+              >
+                {(recommendation.isBooked || bookingSuccessId === recommendation.relatedTrial.id) ? (
+                  <>
+                    <IconCheck size={12} color="#ffffff" style={{ marginRight: '4px' }} />
+                    {recommendation.bookingStatus === 'CONFIRMED' ? 'Подтверждено' : 'Вы записаны'}
+                  </>
+                ) : (
+                  'Записаться'
+                )}
+              </button>
+              <button
+                onClick={() => setRecommendation(null)}
+                title="Скрыть рекомендацию"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '6px',
+                  color: '#64748b'
+                }}
+              >
+                <IconClose size={14} color="#64748b" />
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../../services/api';
 import { IconClose, IconCheck, IconSparkles } from '../common/Icons';
 
-export const InternshipModal = ({ vacancy, companyName, isOpen, onClose }) => {
+export const InternshipModal = ({ vacancy, companyName, isOpen, onClose, onApplied }) => {
   const [applied, setApplied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [coverLetter, setCoverLetter] = useState('');
@@ -16,6 +17,9 @@ export const InternshipModal = ({ vacancy, companyName, isOpen, onClose }) => {
         await api.applyToVacancy(vacancy.id, coverLetter);
       }
       setApplied(true);
+      if (onApplied) {
+        onApplied(vacancy.id);
+      }
     } catch (err) {
       alert('Ошибка при отправке отклика: ' + err.message);
     } finally {
@@ -29,8 +33,8 @@ export const InternshipModal = ({ vacancy, companyName, isOpen, onClose }) => {
     onClose();
   };
 
-  return (
-    <div className="modal-overlay" onClick={handleClose}>
+  return createPortal(
+    <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={handleClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ padding: '28px', maxWidth: '520px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #e2e8f0', paddingBottom: '14px' }}>
           <div>
@@ -70,7 +74,7 @@ export const InternshipModal = ({ vacancy, companyName, isOpen, onClose }) => {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button className="btn btn-secondary" onClick={handleClose}>Отмена</button>
+              <button className="btn btn-secondary" onClick={handleClose} disabled={loading}>Отмена</button>
               <button className="btn btn-primary" onClick={handleConfirm} disabled={loading}>
                 <IconSparkles size={16} /> {loading ? 'Отправка...' : 'Отправить отклик'}
               </button>
@@ -79,15 +83,16 @@ export const InternshipModal = ({ vacancy, companyName, isOpen, onClose }) => {
         ) : (
           <div style={{ textAlign: 'center', padding: '24px 10px' }} className="animate-fade-in">
             <IconCheck size={50} color="#10b981" style={{ marginBottom: '12px' }} />
-            <h3 style={{ color: '#0a2540', margin: '0 0 8px 0' }}>Отклик успешно сохранен в БД!</h3>
+            <h3 style={{ color: '#0a2540', margin: '0 0 8px 0' }}>Отклик успешно отправлен!</h3>
             <p style={{ color: '#64748b', fontSize: '0.88rem', marginBottom: '20px' }}>
-              Представитель HR компании {companyName} свяжется с Вами через личный кабинет.
+              Ваша заявка зафиксирована в системе. Работодатель {companyName} рассмотрит ее и свяжется с вами.
             </p>
             <button className="btn btn-navy" onClick={handleClose}>Закрыть</button>
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

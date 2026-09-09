@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../../services/api';
 import { 
   IconCheck, 
@@ -13,7 +14,7 @@ import {
   IconChevronRight
 } from '../common/Icons';
 
-export const DigitalProfileCard = ({ currentRole }) => {
+export const DigitalProfileCard = ({ currentRole, onNavigateTab }) => {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -78,8 +79,8 @@ export const DigitalProfileCard = ({ currentRole }) => {
   return (
     <div style={styles.cardWrapper} className="animate-fade-in">
       {/* Edit Profile Modal */}
-      {showEditModal && (
-        <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
+      {showEditModal && createPortal(
+        <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => setShowEditModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ padding: '28px', maxWidth: '520px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '14px' }}>
               <div>
@@ -159,7 +160,8 @@ export const DigitalProfileCard = ({ currentRole }) => {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {saveSuccess && (
@@ -303,11 +305,19 @@ export const DigitalProfileCard = ({ currentRole }) => {
       {/* Подсказка, если нет записей */}
       {profile && (!profile.upcomingTrials || profile.upcomingTrials.length === 0) && (
         <div style={styles.emptyBookings}>
-          <IconUser size={16} color="#64748b" />
-          <span>У вас еще нет записей на профессиональные пробы.</span>
-          <span style={{ color: '#0066ff', fontWeight: 700, cursor: 'pointer' }}>
-            Откройте карту АИТУ <IconArrowRight size={12} color="#0066ff" />
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <IconUser size={16} color="#64748b" />
+            <span>У вас еще нет записей на профессиональные пробы.</span>
+          </div>
+          <button 
+            type="button"
+            onClick={() => onNavigateTab && onNavigateTab('map')}
+            style={styles.emptyBookingsBtn}
+            title="Перейти к интерактивной карте зон АИТУ"
+          >
+            <span>Откройте карту АИТУ</span>
+            <IconArrowRight size={12} color="#0066ff" />
+          </button>
         </div>
       )}
     </div>
@@ -505,8 +515,24 @@ const styles = {
     justifyContent: 'space-between',
     padding: '12px 20px 14px 20px',
     borderTop: '1px solid #e2e8f0',
-    fontSize: '0.8rem',
-    color: '#64748b'
+    fontSize: '0.82rem',
+    color: '#64748b',
+    flexWrap: 'wrap',
+    gap: '10px'
+  },
+  emptyBookingsBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    color: '#0066ff',
+    fontWeight: 700,
+    background: 'rgba(0, 102, 255, 0.08)',
+    border: '1px solid rgba(0, 102, 255, 0.2)',
+    cursor: 'pointer',
+    padding: '6px 12px',
+    borderRadius: '8px',
+    fontSize: '0.82rem',
+    transition: 'all 0.2s ease'
   },
   profileMainRow: {
     padding: '16px 20px',
